@@ -41,6 +41,24 @@ tests), which is exactly what the framework's `GameServer` needs for async
 multiplayer. Wiring `GameServer` + the `useGame` hook for shareable-URL
 multiplayer is a drop-in next step.
 
+## Online multiplayer (server-authoritative)
+
+Beyond local hotseat, the game supports cross-device online play built on the
+framework's `GameServer`:
+
+- **API**: a Cloudflare Worker (`/server`) wraps `GameServer` with a KV-backed
+  `SnapshotStore`. Per-seat token auth, shareable invite URLs, CORS.
+- **Redaction**: the adapter's `viewFor` gives each player a redacted view —
+  corporations can't see unrevealed Force Card contents, the event deck, or the
+  RNG state. Only the Dark Legion sees everything; the RNG state never reaches
+  any client.
+- **Client**: the framework's `useGame` hook polls the Worker. An invite link
+  (`?game=…&token=…`) routes to the online view. The "Multiplayer" panel creates
+  a game and shows one private link per seat.
+
+Deploy: `cd server && npx wrangler deploy` (Worker + KV) and
+`cd app && npm run build && npx wrangler pages deploy dist …` (static client).
+
 ## Rules modeled
 
 - **Board** — sectors are the real game tiles (8×8 grids) from the board, laid
@@ -58,9 +76,21 @@ multiplayer is a drop-in next step.
 - **Force Cards** — face-down on each sector; revealed when a Doomtrooper first
   enters, deploying the listed Dark Legion creatures.
 - **Promotion Points** — awarded for kills; used in objectives.
-- **Missions** — Trial by Fire (training) and Mission 1: Eagle Strike, with the
-  shared mission scaffold ([`src/game/missions.ts`](src/game/missions.ts))
-  ready for the rest.
+- **Missions** — Trial by Fire (training) plus all 10 primary missions, with
+  varied win conditions: promotion + withdraw, eliminate-all, escape, get-the-boss,
+  destroy objective (teleporter doorways / battle computer), defend, and hunt the
+  Nepharite. Objective figures are placed per mission
+  ([`src/game/missions.ts`](src/game/missions.ts)).
+- **Interior walls** — hand-authored room/corridor layouts per sector
+  ([`src/game/sectorWalls.ts`](src/game/sectorWalls.ts)), rendered on the board
+  and enforced by movement + line of sight.
+- **Equipment & events** — rank-gated weapons and credit-cost gear chosen at
+  setup; Dark Legion event cards drawn each round
+  ([`src/game/cards.ts`](src/game/cards.ts)). Card text is original functional
+  shorthand, not reproduced from the printed cards.
+- **Campaign** — play all 10 in sequence; promotion points → rank → extra
+  actions, credits carry forward; persisted in localStorage
+  ([`src/game/campaign.ts`](src/game/campaign.ts)).
 
 ## Artwork — bring your own
 
