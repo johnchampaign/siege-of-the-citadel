@@ -13,6 +13,8 @@ export const App: React.FC = () => {
   const [selected, setSelected] = useState<string | null>(null);
   const [weaponIdx, setWeaponIdx] = useState(0);
   const assets = useAssets();
+  const [theme, setTheme] = useState<'designed' | 'art'>('designed');
+  const useArt = theme === 'art' && assets.loaded;
 
   const seatName = state.seats.find((s) => s.id === state.activeSeat)?.name ?? '—';
   const isLegionTurn = state.activeSeat === 'legion';
@@ -58,6 +60,7 @@ export const App: React.FC = () => {
           legal={legal}
           selected={selected}
           weaponIdx={weaponIdx}
+          useArt={useArt}
           onSelect={setSelected}
           onMove={doMove}
           onAttack={doAttack}
@@ -87,7 +90,7 @@ export const App: React.FC = () => {
           </div>
         </Panel>
 
-        <AssetPanel />
+        <AssetPanel theme={theme} setTheme={setTheme} />
 
         <Panel title={`Round ${state.round}${state.timeLimitRounds < 90 ? ` / ${state.timeLimitRounds}` : ''} — ${state.phase.toUpperCase()}`}>
           {state.phase === 'setup' && (
@@ -187,16 +190,39 @@ export const App: React.FC = () => {
   );
 };
 
-const AssetPanel: React.FC = () => {
+const AssetPanel: React.FC<{ theme: 'designed' | 'art'; setTheme: (t: 'designed' | 'art') => void }> = ({ theme, setTheme }) => {
   const a = useAssets();
   const inputRef = React.useRef<HTMLInputElement>(null);
   if (!a.ready) return null;
   return (
-    <Panel title={a.loaded ? `Artwork — ${a.count}/${a.total} loaded` : 'Artwork (optional)'}>
+    <Panel title="Visual Style">
+      {/* theme switch — the designed theme needs no download */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+        <button
+          onClick={() => setTheme('designed')}
+          style={{ ...btn, flex: 1, outline: theme === 'designed' ? '2px solid #e8c349' : 'none', fontWeight: theme === 'designed' ? 700 : 400 }}
+        >
+          ◈ Designed
+        </button>
+        <button
+          onClick={() => setTheme('art')}
+          disabled={!a.loaded}
+          title={a.loaded ? 'Use the artwork from your VASSAL module' : 'Load a VASSAL module first'}
+          style={{ ...btn, flex: 1, opacity: a.loaded ? 1 : 0.4, outline: theme === 'art' && a.loaded ? '2px solid #e8c349' : 'none', fontWeight: theme === 'art' ? 700 : 400 }}
+        >
+          🖼 Module art
+        </button>
+      </div>
+      <div style={{ fontSize: 11, color: '#888', marginBottom: 10 }}>
+        {theme === 'designed'
+          ? 'Original art-free token & tile design — no download needed.'
+          : 'Showing artwork from your loaded VASSAL module.'}
+      </div>
+
       {a.loaded ? (
         <div style={{ fontSize: 12, color: '#9c9' }}>
-          ✓ Board tiles & figures loaded from your VASSAL module (cached on this device).
-          <button style={{ ...btn, marginTop: 8 }} onClick={() => a.clear()}>Remove artwork</button>
+          ✓ Module artwork available ({a.count}/{a.total} images, cached on this device).
+          <button style={{ ...btn, marginTop: 8 }} onClick={() => { a.clear(); setTheme('designed'); }}>Remove artwork</button>
         </div>
       ) : (
         <div style={{ fontSize: 12, color: '#bbb', lineHeight: 1.5 }}>

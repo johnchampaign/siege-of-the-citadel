@@ -2,16 +2,7 @@ import React, { useMemo } from 'react';
 import type { GameState, Action, Figure } from '../game/types';
 import { figureType } from '../game/data';
 import { useAssets } from './assets';
-
-// Short label + colour for placeholder tokens when no module art is loaded.
-const FACTION_COLOR: Record<string, string> = {
-  Bauhaus: '#c89b3c', Imperial: '#4a7fb5', Cybertronic: '#5aa0a0',
-  Capitol: '#b5564a', Mishima: '#9a5ab5', 'Dark Legion': '#7a1010',
-};
-function initials(name: string): string {
-  const parts = name.split(' ').filter(Boolean);
-  return (parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '');
-}
+import { DesignedFigure, DesignedTile } from './designed';
 
 const CELL = 40;
 
@@ -20,6 +11,7 @@ interface Props {
   legal: Action[];
   selected: string | null;
   weaponIdx: number;
+  useArt: boolean; // true = render loaded VASSAL module art; false = designed theme
   onSelect: (uid: string | null) => void;
   onMove: (x: number, y: number) => void;
   onAttack: (targetUid: string) => void;
@@ -36,7 +28,7 @@ function boardBounds(s: GameState) {
   return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
 }
 
-export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, onSelect, onMove, onAttack }) => {
+export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useArt, onSelect, onMove, onAttack }) => {
   const assets = useAssets();
   const b = useMemo(() => boardBounds(state), [state.sectors]);
   const px = (gx: number) => (gx - b.minX) * CELL;
@@ -68,9 +60,9 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, onSe
         boxShadow: '0 0 40px #000 inset',
       }}
     >
-      {/* sector backgrounds: real tile art if a module is loaded, else a label */}
+      {/* sector backgrounds: module art if loaded + selected, else designed tile */}
       {state.sectors.map((sec) => {
-        const url = assets.getMap(sec.mapImage);
+        const url = useArt ? assets.getMap(sec.mapImage) : undefined;
         const common: React.CSSProperties = {
           position: 'absolute',
           left: px(sec.ox),
@@ -85,12 +77,9 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, onSe
           );
         }
         return (
-          <div key={sec.id + '-' + sec.ox} style={{
-            ...common,
-            background: (sec.ox / sec.size + sec.oy / sec.size) % 2 === 0 ? '#1d2733' : '#202a23',
-            display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start',
-            color: '#3f5a6b', fontSize: 40, fontWeight: 800, padding: 4,
-          }}>{sec.id}</div>
+          <div key={sec.id + '-' + sec.ox} style={common}>
+            <DesignedTile id={sec.id} size={sec.size} cell={CELL} />
+          </div>
         );
       })}
 
@@ -192,19 +181,14 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, onSe
               justifyContent: 'center',
             }}
           >
-            {assets.getToken(ft.token) ? (
+            {useArt && assets.getToken(ft.token) ? (
               <img
                 src={assets.getToken(ft.token)}
                 alt={ft.name}
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
               />
             ) : (
-              <div style={{
-                width: '100%', height: '100%',
-                background: FACTION_COLOR[ft.faction] ?? '#444',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#fff', fontSize: 13, fontWeight: 800, letterSpacing: 0.5,
-              }}>{initials(ft.name)}</div>
+              <DesignedFigure ft={ft} />
             )}
             {/* wound pips */}
             {f.woundsTaken > 0 && (
