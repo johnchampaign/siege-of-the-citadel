@@ -60,7 +60,12 @@ export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
           <div style={{ fontSize: 13, marginTop: 6, color: yourTurn ? '#6f6' : '#aaa' }}>
             {state.phase === 'over' ? '🏁 Game over' : yourTurn ? '● Your turn' : `Waiting for ${seatLabel(state.activeSeat ?? '')}…`}
           </div>
-          {game.loading && <div style={{ fontSize: 11, color: '#777', marginTop: 4 }}>syncing…</div>}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+            <button style={btn} onClick={() => game.refresh()} disabled={game.loading} title="Re-sync the latest game state from the server">
+              ⟳ Reload
+            </button>
+            {game.loading && <span style={{ fontSize: 11, color: '#777' }}>syncing…</span>}
+          </div>
         </Panel>
 
         <Panel title={`Round ${state.round} — ${state.phase.toUpperCase()}`}>
