@@ -1,0 +1,16 @@
+# dependencies / build
+node_modules/
+app/node_modules/
+app/dist/
+*.log
+
+# never commit copyrighted game material
+*.vmod
+*.pdf
+app/public/tokens/
+app/public/maps/
+_mc_test.*
+
+# local editor / OS
+.DS_Store
+.vscode/
