@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useGame } from 'digital-boardgame-framework/client';
 import { Board } from './Board';
 import { httpClient, type OnlineParams } from './api';
+import { ReportPanel } from './ReportPanel';
 import { figureType } from '../game/data';
 import type { GameState, Action } from '../game/types';
 
@@ -110,6 +111,8 @@ export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
           <div style={{ fontSize: 12, color: '#aaa' }}>Send each player their own invite link (from whoever created the game). This link is yours — don't share it.</div>
           <a href={location.origin + location.pathname} style={{ color: '#5af', fontSize: 12 }}>← Back to local game</a>
         </Panel>
+
+        <ReportPanel state={state} mode="online" gameId={params.gameId} />
       </div>
     </div>
   );

@@ -27,6 +27,45 @@ export async function createOnlineGame(missionId: string, corporations?: string[
   return res.json();
 }
 
+export type Severity = 'bug' | 'rules-question' | 'feedback';
+
+export interface ReportPayload {
+  message: string;
+  severity: Severity;
+  missionId?: string;
+  mode: 'local' | 'online';
+  gameId?: string;
+  state?: unknown;     // full game state snapshot (the "uploaded log")
+  log?: string[];      // human-readable battle log lines
+}
+
+const BUILD = (import.meta as any).env?.VITE_BUILD || 'dev';
+
+/** Submit a bug report + game-state log to the Worker. Throws on failure and
+ *  resolves only with a server-issued reportId (never silently drops). */
+export async function submitReport(p: ReportPayload): Promise<{ reportId: string }> {
+  const res = await fetch(`${API_BASE}/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...p, clientBuild: BUILD, userAgent: navigator.userAgent }),
+  });
+  if (!res.ok) throw new Error(`report failed: ${res.status}`);
+  const data = await res.json();
+  if (!data?.reportId) throw new Error('report rejected: no reportId');
+  return data;
+}
+
+/** Save a JSON log/state file locally so the player keeps a copy. */
+export function downloadLog(filename: string, payload: unknown) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /** A GameClientApi (the framework's useGame contract) backed by the Worker. */
 export function httpClient(gameId: string, token: string): GameClientApi<GameState, Action> {
   const q = `token=${encodeURIComponent(token)}`;

@@ -168,6 +168,10 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
         const canAttack = !!atkWeapons && atkWeapons.includes(weaponIdx);
         const isMine = f.owner === state.activeSeat;
         const canActivate = activeFigs.has(f.uid);
+        // Dim figures that can't act/be acted on this turn so the active
+        // seat's figures clearly stand out (the rest aren't clickable).
+        const inPlay = state.phase === 'play';
+        const dim = inPlay && !canActivate && !canAttack && !isSel;
         return (
           <div
             key={f.uid}
@@ -175,7 +179,7 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
               if (canAttack) onAttack(f.uid);
               else if (isMine) onSelect(isSel ? null : f.uid);
             }}
-            title={`${ft.name} — ${ft.faction}\nstrength ${ft.strength - f.woundsTaken}/${ft.strength}, armor ${ft.armor}, actions ${f.actionsLeft}`}
+            title={`${ft.name} — ${ft.faction}\nstrength ${ft.strength - f.woundsTaken}/${ft.strength}, armor ${ft.armor}, actions ${f.actionsLeft}${canActivate ? '\n(your figure — click to select)' : ''}`}
             style={{
               position: 'absolute',
               left: px(f.x) + 2,
@@ -184,16 +188,21 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
               height: CELL - 4,
               borderRadius: 6,
               border: isSel
-                ? '2px solid #6f6'
+                ? '3px solid #6f6'
                 : canAttack
-                ? '2px solid #f44'
+                ? '3px solid #f44'
+                : canActivate
+                ? '3px solid #ffd24d'
                 : f.owner === 'legion'
                 ? '2px solid #b22'
                 : '2px solid #28c',
-              boxShadow: canActivate ? '0 0 8px #ffd24d' : 'none',
+              boxShadow: isSel ? '0 0 10px #6f6' : canActivate ? '0 0 10px #ffd24d' : canAttack ? '0 0 10px #f44' : 'none',
               background: '#111',
               cursor: canAttack || canActivate ? 'pointer' : 'default',
               overflow: 'hidden',
+              opacity: dim ? 0.45 : 1,
+              filter: dim ? 'grayscale(0.6)' : 'none',
+              transition: 'opacity 0.15s, box-shadow 0.15s',
               display: 'flex',
               alignItems: 'flex-end',
               justifyContent: 'center',

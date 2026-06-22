@@ -7,6 +7,7 @@ import { EQUIPMENT_LIST, EVENTS } from '../game/cards';
 import type { Action, GameState } from '../game/types';
 import { useAssets, VASSAL_MODULE_URL, VASSAL_MODULE_PAGE } from './assets';
 import { createOnlineGame } from './api';
+import { ReportPanel } from './ReportPanel';
 import {
   type CampaignState, loadCampaign, saveCampaign, newCampaign, clearCampaign,
   ranks, currentMission, isComplete, recordResult, CAMPAIGN_CORPS,
@@ -164,12 +165,21 @@ export const App: React.FC = () => {
           )}
           {state.phase === 'play' && (
             <div>
-              <div style={{ fontSize: 15, marginBottom: 8 }}>
+              <div style={{ fontSize: 15, marginBottom: 6 }}>
                 Active: <b style={{ color: isLegionTurn ? '#f55' : '#5af' }}>{seatName}</b>
                 {isLegionTurn && game.legionAI && <span style={{ color: '#888', marginLeft: 8 }}>(AI thinking…)</span>}
               </div>
+              {isLegionTurn && game.legionAI ? (
+                <div style={{ fontSize: 12, color: '#c88' }}>The Dark Legion is taking its turn — please wait a moment.</div>
+              ) : isLegionTurn ? (
+                <div style={{ fontSize: 12, color: '#c88' }}>Dark Legion's turn — control its glowing figures.</div>
+              ) : (
+                <div style={{ fontSize: 12, color: '#9c9' }}>
+                  Only <b>{seatName}</b>'s figures (gold-outlined &amp; glowing) can act now — others are dimmed.
+                </div>
+              )}
               {!(isLegionTurn && game.legionAI) && (
-                <button style={btn} onClick={() => submit({ type: 'end-turn' })}>End Turn ⏭</button>
+                <button style={{ ...btn, marginTop: 8 }} onClick={() => submit({ type: 'end-turn' })}>End Turn ⏭</button>
               )}
             </div>
           )}
@@ -263,6 +273,8 @@ export const App: React.FC = () => {
             ))}
           </div>
         </Panel>
+
+        <ReportPanel state={state} mode="local" />
       </div>
     </div>
   );
