@@ -1,0 +1,12 @@
+name = "siege-of-the-citadel-api"
+main = "worker.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Where the playable client is hosted, used to build shareable invite links.
+[vars]
+SITE_ORIGIN = "https://siege-of-the-citadel.pages.dev"
+
+[[kv_namespaces]]
+binding = "SIEGE_KV"
+id = "00990338113344eb880c726199707577"

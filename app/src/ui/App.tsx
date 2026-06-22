@@ -6,6 +6,7 @@ import { figureType, CORP_SPECIAL } from '../game/data';
 import { EQUIPMENT_LIST, EVENTS } from '../game/cards';
 import type { Action, GameState } from '../game/types';
 import { useAssets, VASSAL_MODULE_URL, VASSAL_MODULE_PAGE } from './assets';
+import { createOnlineGame } from './api';
 import {
   type CampaignState, loadCampaign, saveCampaign, newCampaign, clearCampaign,
   ranks, currentMission, isComplete, recordResult, CAMPAIGN_CORPS,
@@ -144,6 +145,8 @@ export const App: React.FC = () => {
           onReset={resetCampaign}
         />
 
+        <MultiplayerPanel missionId={missionId} />
+
         <AssetPanel theme={theme} setTheme={setTheme} />
 
         {state.phase === 'setup' && <EquipmentPanel state={state} submit={submit} />}
@@ -275,6 +278,57 @@ function objectiveText(state: GameState): string {
     case 'survive': return `Hold out for all ${state.timeLimitRounds} rounds.`;
   }
 }
+
+const MultiplayerPanel: React.FC<{ missionId: string }> = ({ missionId }) => {
+  const [invites, setInvites] = useState<Record<string, string> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function create() {
+    setBusy(true); setErr(null); setInvites(null);
+    try {
+      const r = await createOnlineGame(missionId);
+      setInvites(r.invites);
+    } catch (e: any) {
+      setErr(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Panel title="Multiplayer (online)">
+      <div style={{ fontSize: 12, color: '#bbb' }}>
+        Create a server-hosted game and send each player their own private link. Turns are
+        server-authoritative — opponents can't see your hidden cards. Play across devices.
+      </div>
+      <button style={{ ...btn, marginTop: 8 }} disabled={busy} onClick={create}>
+        {busy ? 'Creating…' : '➕ Create Online Game'}
+      </button>
+      {err && <div style={{ color: '#f66', fontSize: 11, marginTop: 6 }}>{err}</div>}
+      {invites && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: '#7c7', marginBottom: 4 }}>One link per seat — give each to a different player:</div>
+          {Object.entries(invites).map(([seat, url]) => (
+            <div key={seat} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontSize: 11, width: 64, color: seat === 'legion' ? '#f88' : '#8bf' }}>{seat}</span>
+              <button
+                style={{ ...btn, fontSize: 10, padding: '2px 6px', flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                onClick={() => { navigator.clipboard?.writeText(url); setCopied(seat); }}
+                title={url}
+              >
+                {copied === seat ? '✓ copied!' : '📋 copy link'}
+              </button>
+              <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#5af' }}>open</a>
+            </div>
+          ))}
+          <div style={{ fontSize: 10, color: '#888', marginTop: 4 }}>Open your own seat's link to play. Setup equipment is local-only; online games start unequipped.</div>
+        </div>
+      )}
+    </Panel>
+  );
+};
 
 const CampaignPanel: React.FC<{
   campaign: CampaignState | null;

@@ -366,12 +366,16 @@ export const adapter: GameAdapter<GameState, Action, string> = {
     return null;
   },
 
-  viewFor(s) {
+  viewFor(s, viewer) {
     if (!s) return s;
-    // Redact unrevealed force-card contents from everyone except the Legion.
-    // (For local hotseat we return the full state; redaction matters for the
-    // networked server path.)
-    return s;
+    const v: GameState = JSON.parse(JSON.stringify(s));
+    // Never leak the RNG state to any client — it would let them predict rolls.
+    v.rngState = 0;
+    if (viewer === 'legion') return v; // the Dark Legion sees everything
+    // Corporations cannot see unrevealed Force Card contents or the event deck.
+    v.forceCards = v.forceCards.map((fc) => (fc.revealed ? fc : { ...fc, cardId: 'hidden' }));
+    v.eventDeck = v.eventDeck.map(() => 'hidden');
+    return v;
   },
 
   legalActions(s, actor) {
