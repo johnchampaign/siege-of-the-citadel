@@ -1,7 +1,9 @@
 # dependencies / build
 node_modules/
 app/node_modules/
+server/node_modules/
 app/dist/
+.wrangler/
 *.log
 
 # never commit copyrighted game material
