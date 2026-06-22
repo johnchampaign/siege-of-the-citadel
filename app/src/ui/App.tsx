@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Board } from './Board';
 import { useLocalGame } from './useLocalGame';
 import { MISSION_LIST, FORCE_CARDS } from '../game/missions';
-import { figureType, CORP_SPECIAL } from '../game/data';
+import { figureType, effectiveType, CORP_SPECIAL } from '../game/data';
 import { EQUIPMENT_LIST, EVENTS } from '../game/cards';
 import type { Action, GameState } from '../game/types';
 import { useAssets, VASSAL_MODULE_URL, VASSAL_MODULE_PAGE } from './assets';
@@ -41,22 +41,45 @@ export const App: React.FC = () => {
 
   const selFig = state.figures.find((f) => f.uid === selected && f.alive) || null;
   const selType = selFig ? figureType(selFig.typeId) : null;
+  // effective weapons (equipment/rank folded in) for display + kind lookup
+  const selEff = selFig ? effectiveType(selFig, state.rank[selFig.owner] ?? 1, (state as any)._frenzy) : null;
+  const selWeaponKinds = selEff ? selEff.weapons.map((w) => w.kind) : [];
 
-  // weapons available for the selected figure as attacks in legal set
-  const selWeapons = useMemo(() => {
-    if (!selFig) return [] as number[];
+  // weaponIdx values that have a legal target for the selected figure, and how
+  // many distinct enemy targets each weapon kind can hit right now.
+  const { selWeapons, meleeTargets, rangedTargets } = useMemo(() => {
     const set = new Set<number>();
-    for (const a of legal) if (a.type === 'attack' && a.uid === selFig.uid) set.add(a.weaponIdx);
-    return [...set].sort();
-  }, [legal, selFig]);
+    const melee = new Set<string>();
+    const ranged = new Set<string>();
+    if (selFig) {
+      for (const a of legal) {
+        if (a.type === 'attack' && a.uid === selFig.uid) {
+          set.add(a.weaponIdx);
+          if (selWeaponKinds[a.weaponIdx] === 'close') melee.add(a.targetUid);
+          else ranged.add(a.targetUid);
+        }
+      }
+    }
+    return { selWeapons: [...set].sort(), meleeTargets: melee.size, rangedTargets: ranged.size };
+  }, [legal, selFig, selWeaponKinds]);
+
+  // Auto-pick a sensible default weapon when a new figure is selected: prefer a
+  // weapon that actually has targets (melee first if adjacent, else ranged).
+  useEffect(() => {
+    if (!selFig || selWeapons.length === 0) return;
+    if (selWeapons.includes(weaponIdx)) return;
+    const meleeIdx = selWeapons.find((i) => selWeaponKinds[i] === 'close');
+    setWeaponIdx(meleeIdx ?? selWeapons[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, selWeapons.join(',')]);
 
   function doMove(x: number, y: number) {
     if (!selected) return;
     submit({ type: 'move', uid: selected, x, y });
   }
-  function doAttack(targetUid: string) {
+  function doAttack(targetUid: string, idx: number) {
     if (!selected) return;
-    submit({ type: 'attack', uid: selected, targetUid, weaponIdx });
+    submit({ type: 'attack', uid: selected, targetUid, weaponIdx: idx });
   }
   function newGame(mid: string) {
     setMissionId(mid);
@@ -108,13 +131,14 @@ export const App: React.FC = () => {
           selected={selected}
           weaponIdx={weaponIdx}
           useArt={useArt}
+          attackKinds={selWeaponKinds}
           onSelect={setSelected}
           onMove={doMove}
           onAttack={doAttack}
         />
         </div>
         <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
-          Click a glowing figure to select it · green squares = move · red-outlined enemies = attack target
+          Click a glowing figure · green squares = move · <span style={{ color: '#f66' }}>red ⚔ = melee</span> · <span style={{ color: '#6af' }}>blue 🎯 = ranged (firearm)</span>
         </div>
       </div>
 
@@ -206,24 +230,34 @@ export const App: React.FC = () => {
             <div style={{ fontSize: 13 }}>
               {selType.faction} · strength {selType.strength - selFig.woundsTaken}/{selType.strength} · armor {selType.armor} · <b>{selFig.actionsLeft} action(s) left</b>
             </div>
-            {selWeapons.length > 0 && (
-              <div style={{ marginTop: 8 }}>
-                <div style={{ fontSize: 12, color: '#aaa' }}>Attack with:</div>
-                <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                  {selType.weapons.map((w, i) => (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12, color: '#aaa' }}>Targets in reach:</div>
+              <div style={{ fontSize: 13, marginTop: 2 }}>
+                <span style={{ color: meleeTargets ? '#f66' : '#666' }}>⚔ Melee: {meleeTargets} adjacent</span>
+                <span style={{ color: '#555', margin: '0 6px' }}>·</span>
+                <span style={{ color: rangedTargets ? '#6af' : '#666' }}>🎯 Ranged: {rangedTargets} in sight</span>
+              </div>
+              {(selEff?.weapons.length ?? 0) > 0 && (
+                <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                  {(selEff?.weapons ?? []).map((w, i) => (
                     <button
                       key={i}
                       disabled={!selWeapons.includes(i)}
                       onClick={() => setWeaponIdx(i)}
+                      title={w.kind === 'close' ? 'Close combat — must be adjacent' : `Firearm — range ${w.range}, needs line of sight`}
                       style={{ ...btn, opacity: selWeapons.includes(i) ? 1 : 0.35, outline: weaponIdx === i ? '2px solid #e8c349' : 'none' }}
                     >
-                      {w.name} ({w.dice}{w.color[0]})
+                      {w.kind === 'close' ? '⚔' : '🎯'} {w.name} ({w.dice}{w.color[0]})
                     </button>
                   ))}
                 </div>
-                <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>Then click a red-outlined enemy.</div>
+              )}
+              <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+                {selWeapons.length > 0
+                  ? 'Click a highlighted enemy — red = melee, blue = ranged. (It auto-uses the right weapon.)'
+                  : 'No enemies in reach. Move closer or get line of sight for a firearm shot.'}
               </div>
-            )}
+            </div>
             <button style={{ ...btn, marginTop: 8 }} onClick={() => { submit({ type: 'pass-figure', uid: selFig.uid }); setSelected(null); }}>
               Done with this figure
             </button>

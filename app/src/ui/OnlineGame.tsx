@@ -3,7 +3,7 @@ import { useGame } from 'digital-boardgame-framework/client';
 import { Board } from './Board';
 import { httpClient, type OnlineParams } from './api';
 import { ReportPanel } from './ReportPanel';
-import { figureType } from '../game/data';
+import { figureType, effectiveType } from '../game/data';
 import type { GameState, Action } from '../game/types';
 
 // Online (server-authoritative) game view. Driven by the framework's useGame
@@ -23,6 +23,8 @@ export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
   const yourTurn = game.yourTurn;
   const selFig = state.figures.find((f) => f.uid === selected && f.alive) || null;
   const selType = selFig ? figureType(selFig.typeId) : null;
+  const selEff = selFig ? effectiveType(selFig, state.rank[selFig.owner] ?? 1) : null;
+  const selWeaponKinds = selEff ? selEff.weapons.map((w) => w.kind) : [];
 
   const selWeapons = (() => {
     if (!selFig) return [] as number[];
@@ -30,6 +32,8 @@ export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
     for (const a of game.legalActions) if (a.type === 'attack' && a.uid === selFig.uid) set.add(a.weaponIdx);
     return [...set].sort();
   })();
+  const meleeTargets = new Set(game.legalActions.filter((a) => a.type === 'attack' && a.uid === selected && selWeaponKinds[a.weaponIdx] === 'close').map((a: any) => a.targetUid)).size;
+  const rangedTargets = new Set(game.legalActions.filter((a) => a.type === 'attack' && a.uid === selected && selWeaponKinds[a.weaponIdx] === 'firearm').map((a: any) => a.targetUid)).size;
 
   function submit(a: Action) { game.submit(a).catch((e) => console.error(e)); }
 
@@ -47,9 +51,10 @@ export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
             selected={selected}
             weaponIdx={weaponIdx}
             useArt={false}
+            attackKinds={selWeaponKinds}
             onSelect={setSelected}
             onMove={(x, y) => selected && submit({ type: 'move', uid: selected, x, y })}
-            onAttack={(t) => selected && submit({ type: 'attack', uid: selected, targetUid: t, weaponIdx })}
+            onAttack={(t, idx) => selected && submit({ type: 'attack', uid: selected, targetUid: t, weaponIdx: idx })}
           />
         </div>
       </div>
@@ -84,16 +89,23 @@ export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
         {selFig && selType && yourTurn && (
           <Panel title={`Selected: ${selType.name}`}>
             <div style={{ fontSize: 13 }}>{selType.faction} · strength {selType.strength - selFig.woundsTaken}/{selType.strength} · armor {selType.armor} · {selFig.actionsLeft} action(s)</div>
-            {selWeapons.length > 0 && (
-              <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {selType.weapons.map((w, i) => (
+            <div style={{ fontSize: 13, marginTop: 6 }}>
+              <span style={{ color: meleeTargets ? '#f66' : '#666' }}>⚔ Melee: {meleeTargets}</span>
+              <span style={{ color: '#555', margin: '0 6px' }}>·</span>
+              <span style={{ color: rangedTargets ? '#6af' : '#666' }}>🎯 Ranged: {rangedTargets}</span>
+            </div>
+            {(selEff?.weapons.length ?? 0) > 0 && (
+              <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {(selEff?.weapons ?? []).map((w, i) => (
                   <button key={i} disabled={!selWeapons.includes(i)} onClick={() => setWeaponIdx(i)}
+                    title={w.kind === 'close' ? 'Close combat — must be adjacent' : `Firearm — range ${w.range}, needs line of sight`}
                     style={{ ...btn, opacity: selWeapons.includes(i) ? 1 : 0.35, outline: weaponIdx === i ? '2px solid #e8c349' : 'none' }}>
-                    {w.name} ({w.dice}{w.color[0]})
+                    {w.kind === 'close' ? '⚔' : '🎯'} {w.name} ({w.dice}{w.color[0]})
                   </button>
                 ))}
               </div>
             )}
+            <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>Click a highlighted enemy — red = melee, blue = ranged.</div>
             <button style={{ ...btn, marginTop: 8 }} onClick={() => { submit({ type: 'pass-figure', uid: selFig.uid }); setSelected(null); }}>Done with this figure</button>
           </Panel>
         )}

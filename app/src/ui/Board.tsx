@@ -12,9 +12,11 @@ interface Props {
   selected: string | null;
   weaponIdx: number;
   useArt: boolean; // true = render loaded VASSAL module art; false = designed theme
+  /** Effective weapon kinds of the selected figure, indexed by weaponIdx. */
+  attackKinds: ('close' | 'firearm')[];
   onSelect: (uid: string | null) => void;
   onMove: (x: number, y: number) => void;
-  onAttack: (targetUid: string) => void;
+  onAttack: (targetUid: string, weaponIdx: number) => void;
 }
 
 function boardBounds(s: GameState) {
@@ -28,7 +30,7 @@ function boardBounds(s: GameState) {
   return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
 }
 
-export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useArt, onSelect, onMove, onAttack }) => {
+export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useArt, attackKinds, onSelect, onMove, onAttack }) => {
   const assets = useAssets();
   const b = useMemo(() => boardBounds(state), [state.sectors]);
   const px = (gx: number) => (gx - b.minX) * CELL;
@@ -165,7 +167,17 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
         const ft = figureType(f.typeId);
         const isSel = f.uid === selected;
         const atkWeapons = attackTargets.get(f.uid);
-        const canAttack = !!atkWeapons && atkWeapons.includes(weaponIdx);
+        const canAttack = !!atkWeapons && atkWeapons.length > 0;
+        // Which weapon kinds can hit this target, and which weaponIdx to use on click.
+        const kinds = (atkWeapons ?? []).map((i) => attackKinds[i]);
+        const hasMelee = kinds.includes('close');
+        const hasRanged = kinds.includes('firearm');
+        // Prefer the currently-chosen weapon if it can hit; else melee if adjacent; else ranged.
+        const clickWeaponIdx = atkWeapons
+          ? (atkWeapons.includes(weaponIdx) ? weaponIdx
+            : atkWeapons.find((i) => attackKinds[i] === 'close') ?? atkWeapons[0])
+          : -1;
+        const attackColor = hasMelee ? '#f44' : '#39f'; // red = melee, blue = ranged
         const isMine = f.owner === state.activeSeat;
         const canActivate = activeFigs.has(f.uid);
         // Dim figures that can't act/be acted on this turn so the active
@@ -176,10 +188,10 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
           <div
             key={f.uid}
             onClick={() => {
-              if (canAttack) onAttack(f.uid);
+              if (canAttack) onAttack(f.uid, clickWeaponIdx);
               else if (isMine) onSelect(isSel ? null : f.uid);
             }}
-            title={`${ft.name} — ${ft.faction}\nstrength ${ft.strength - f.woundsTaken}/${ft.strength}, armor ${ft.armor}, actions ${f.actionsLeft}${canActivate ? '\n(your figure — click to select)' : ''}`}
+            title={`${ft.name} — ${ft.faction}\nstrength ${ft.strength - f.woundsTaken}/${ft.strength}, armor ${ft.armor}, actions ${f.actionsLeft}${canAttack ? `\n(attack: ${[hasMelee ? '⚔ melee' : '', hasRanged ? '🎯 ranged' : ''].filter(Boolean).join(' / ')})` : canActivate ? '\n(your figure — click to select)' : ''}`}
             style={{
               position: 'absolute',
               left: px(f.x) + 2,
@@ -190,13 +202,13 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
               border: isSel
                 ? '3px solid #6f6'
                 : canAttack
-                ? '3px solid #f44'
+                ? `3px solid ${attackColor}`
                 : canActivate
                 ? '3px solid #ffd24d'
                 : f.owner === 'legion'
                 ? '2px solid #b22'
                 : '2px solid #28c',
-              boxShadow: isSel ? '0 0 10px #6f6' : canActivate ? '0 0 10px #ffd24d' : canAttack ? '0 0 10px #f44' : 'none',
+              boxShadow: isSel ? '0 0 10px #6f6' : canActivate ? '0 0 10px #ffd24d' : canAttack ? `0 0 10px ${attackColor}` : 'none',
               background: '#111',
               cursor: canAttack || canActivate ? 'pointer' : 'default',
               overflow: 'hidden',
@@ -208,6 +220,11 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
               justifyContent: 'center',
             }}
           >
+            {canAttack && (
+              <div style={{ position: 'absolute', top: 0, right: 1, fontSize: 11, lineHeight: '12px', textShadow: '0 0 3px #000', pointerEvents: 'none' }}>
+                {hasMelee ? '⚔' : '🎯'}
+              </div>
+            )}
             {useArt && assets.getToken(ft.token) ? (
               <img
                 src={assets.getToken(ft.token)}
