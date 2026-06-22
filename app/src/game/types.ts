@@ -41,6 +41,8 @@ export interface Figure {
   woundsTaken: number;        // strength lost
   actionsLeft: number;
   alive: boolean;
+  tag?: string;               // objective marker (e.g. 'boss', 'door')
+  equipment?: string[];       // equipment card ids carried (troopers)
 }
 
 /** A sector placed on the board. Local squares are 0..size-1. */
@@ -86,17 +88,30 @@ export interface MissionDef {
   exits?: { x: number; y: number }[];
   timeLimitRounds: number;
   forceCards: ForceCardPlacement[];
+  placements?: Placement[];   // pre-placed objective figures
   /** which corporations play (each fields 2 troopers) */
   corporations: string[];
   troopersPerCorp: Record<string, string[]>; // corp -> figure typeIds
   win: WinCondition;
+  reward?: { troopers: number; legion: number }; // credits awarded on win
+  usesEvents?: boolean;       // Dark Legion draws an event each round
+  number?: number;            // campaign sequence number (1..10), undefined for training
 }
 
 export type WinCondition =
-  | { kind: 'promotion'; points: number }      // troopers must earn N promotion pts
+  | { kind: 'promotion'; points: number; escape?: boolean } // earn N pts (+optionally escape)
   | { kind: 'eliminate-all' }                  // eliminate all legion figures
   | { kind: 'escape'; count: number }          // N troopers reach an exit
-  | { kind: 'survive' };                       // survive the time limit
+  | { kind: 'eliminate-tagged'; tag: string; label: string } // kill all figures w/ tag (boss/doors)
+  | { kind: 'survive' };                       // hold out: troopers win at the time limit
+
+/** A pre-placed figure (objective boss, teleporter doorway, starting Ezoghoul). */
+export interface Placement {
+  typeId: string;
+  x: number;
+  y: number;
+  tag?: string;
+}
 
 export type Phase = 'setup' | 'play' | 'over';
 
@@ -131,6 +146,16 @@ export interface GameState {
   legionKills: number;        // troopers eliminated by legion
   escaped: number;            // troopers escaped (for escape missions)
 
+  // campaign carry-in: starting rank/credits per corp (set by the campaign layer)
+  rank: Record<string, number>;       // corp id -> rank (1..6), grants extra actions
+  credits: Record<string, number>;    // corp id -> credits
+
+  // cards
+  usesEvents: boolean;
+  eventDeck: string[];        // remaining Dark Legion event card ids
+  pendingEvent: string | null; // event drawn this round, awaiting Legion resolution
+  setupDone: boolean;         // equipment selection finished
+
   win: WinCondition;
   winners: string[] | null;
 
@@ -146,4 +171,7 @@ export type Action =
   | { type: 'attack'; uid: string; targetUid: string; weaponIdx: number }
   | { type: 'pass-figure'; uid: string }                       // end this figure's actions
   | { type: 'end-turn' }                                        // end active seat's turn
+  | { type: 'equip'; corp: string; trooperUid: string; cardId: string } // setup: assign equipment
+  | { type: 'finish-setup' }                                    // setup: lock in equipment
+  | { type: 'resolve-event' }                                   // Legion acknowledges the round's event
   | { type: 'start' };                                          // setup -> play

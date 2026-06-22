@@ -1,4 +1,5 @@
-import type { FigureType } from './types';
+import type { FigureType, Figure, Weapon } from './types';
+import { EQUIPMENT } from './cards';
 
 // Standard weapons. Doomtroopers attack with 3 white dice in close combat and
 // carry a firearm (range 24). Dark Legion creatures vary by type. These reflect
@@ -106,8 +107,62 @@ export const CREATURES: Record<string, FigureType> = {
     weapons: [{ name: 'Crushing Blow', kind: 'close', dice: 3, color: 'black', range: 1 }],
     promotion: 10,
   },
+  // --- objective targets (do not act; must be destroyed) ---
+  door: {
+    id: 'door', name: 'Teleporter Doorway', faction: 'Dark Legion', token: 'nepharite.png',
+    isTrooper: false, armor: 3, strength: 1, actions: 0,
+    weapons: [], promotion: 4,
+  },
+  computer: {
+    id: 'computer', name: 'Battle Computer', faction: 'Dark Legion', token: 'razide.png',
+    isTrooper: false, armor: 2, strength: 1, actions: 0,
+    weapons: [], promotion: 4,
+  },
 };
 
 export function figureType(typeId: string): FigureType {
   return TROOPERS[typeId] ?? CREATURES[typeId];
+}
+
+/** A figure's effective stats after equipment, rank extra actions, corp
+ *  abilities, and (for Legion) round frenzy. `rank` is the owner's campaign rank
+ *  (1..6); `frenzy` adds an action to Legion creatures for the round. */
+export function effectiveType(
+  fig: Figure,
+  rank = 1,
+  frenzy = false,
+): FigureType {
+  const base = figureType(fig.typeId);
+  let weapons: Weapon[] = base.weapons.map((w) => ({ ...w }));
+  let actions = base.actions;
+  let kev = base.kevlariteDice ?? 0;
+
+  if (base.isTrooper) {
+    // rank extra actions (Rank 1 = none; capped later)
+    actions += Math.max(0, rank - 1);
+    // corp special abilities (full-rules)
+    if (base.faction === 'Bauhaus') weapons = weapons.map((w) => (w.kind === 'firearm' ? { ...w, dice: w.dice + 1 } : w));
+    if (base.faction === 'Cybertronic') kev += 1;
+    if (base.faction === 'Imperial' || base.faction === 'Capitol') actions += 1;
+
+    for (const id of fig.equipment ?? []) {
+      const e = EQUIPMENT[id];
+      if (!e) continue;
+      const m = e.mods;
+      if (m.bonusActions) actions += m.bonusActions;
+      if (m.replaceClose) weapons = weapons.map((w) => (w.kind === 'close' ? { ...m.replaceClose! } : w));
+      if (m.replaceFirearm) {
+        if (weapons.some((w) => w.kind === 'firearm')) weapons = weapons.map((w) => (w.kind === 'firearm' ? { ...m.replaceFirearm! } : w));
+        else weapons.push({ ...m.replaceFirearm });
+      }
+      if (m.bonusCloseDice) weapons = weapons.map((w) => (w.kind === 'close' ? { ...w, dice: w.dice + m.bonusCloseDice! } : w));
+      if (m.bonusFirearmDice) weapons = weapons.map((w) => (w.kind === 'firearm' ? { ...w, dice: w.dice + m.bonusFirearmDice! } : w));
+      if (m.bonusKevlarite) kev += m.bonusKevlarite;
+    }
+    actions = Math.min(actions, 6);
+  } else if (frenzy) {
+    actions += 1;
+  }
+
+  return { ...base, weapons, actions, kevlariteDice: kev };
 }

@@ -1,7 +1,6 @@
 import { Rng } from 'digital-boardgame-framework';
-import type { GameState, Figure, Wall, DiceColor } from './types';
+import type { GameState, Figure, Wall, DiceColor, FigureType } from './types';
 import { HIT_THRESHOLD } from './types';
-import { figureType } from './data';
 
 // ---------- board geometry ----------
 
@@ -116,11 +115,16 @@ export interface AttackOutcome {
   label: string;
 }
 
-/** Resolve an attack from `attacker` against `target` with the given weapon.
- *  Mutates rng state on the caller side (we pass a live Rng). */
-export function resolveAttack(rng: Rng, attacker: Figure, target: Figure, weaponIdx: number): AttackOutcome {
-  const at = figureType(attacker.typeId);
-  const tt = figureType(target.typeId);
+/** Resolve an attack using the attacker/target *effective* types (equipment,
+ *  rank and abilities already folded in). `targetWounds` is the target's current
+ *  woundsTaken. The caller passes a live Rng (its state is advanced). */
+export function resolveAttack(
+  rng: Rng,
+  at: FigureType,
+  tt: FigureType,
+  targetWounds: number,
+  weaponIdx: number,
+): AttackOutcome {
   const weapon = at.weapons[weaponIdx];
   const { dice, hits } = rollDice(rng, weapon.dice, weapon.color);
 
@@ -132,7 +136,7 @@ export function resolveAttack(rng: Rng, attacker: Figure, target: Figure, weapon
   }
 
   const effective = Math.max(0, hits - tt.armor - kevlariteSaves);
-  const remaining = tt.strength - target.woundsTaken - effective;
+  const remaining = tt.strength - targetWounds - effective;
   const killed = remaining <= 0;
   const label = `${at.name} → ${tt.name}: ${hits} hit${hits === 1 ? '' : 's'} (armor ${tt.armor}${
     kevlariteSaves ? `, ${kevlariteSaves} saved` : ''

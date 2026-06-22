@@ -112,6 +112,24 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
         }),
       )}
 
+      {/* interior walls */}
+      {state.walls.map((w, i) => {
+        const lx = px(w.x), ty = py(w.y);
+        const T = 4;
+        const horiz = w.dir === 'N' || w.dir === 'S';
+        const style: React.CSSProperties = {
+          position: 'absolute',
+          background: '#c9a23a',
+          boxShadow: '0 0 3px #000',
+          pointerEvents: 'none',
+          left: w.dir === 'E' ? lx + CELL - T / 2 : w.dir === 'W' ? lx - T / 2 : lx,
+          top: w.dir === 'S' ? ty + CELL - T / 2 : w.dir === 'N' ? ty - T / 2 : ty,
+          width: horiz ? CELL : T,
+          height: horiz ? T : CELL,
+        };
+        return <div key={'w' + i} style={style} />;
+      })}
+
       {/* citadel */}
       {state.citadel && (
         <div

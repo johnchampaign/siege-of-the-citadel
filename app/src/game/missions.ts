@@ -1,4 +1,6 @@
-import type { MissionDef, SectorPlacement, Wall, ForceCardDef } from './types';
+import type { MissionDef, SectorPlacement, ForceCardDef, Placement } from './types';
+import { CORP_TROOPERS } from './data';
+import { wallsForSectors } from './sectorWalls';
 
 const SIZE = 8;
 
@@ -15,102 +17,232 @@ export const FORCE_CARDS: Record<string, ForceCardDef> = {
   fc5: { id: 'fc5', name: 'Force 5', spawn: ['centurion', 'necromutant'] },
   fc6: { id: 'fc6', name: 'Force 6', spawn: ['razide'] },
   fc7: { id: 'fc7', name: 'Force 7', spawn: ['necromutant', 'centurion', 'legionnaire'] },
+  fc8: { id: 'fc8', name: 'Force 8', spawn: ['legionnaire', 'razide'] },
+  fc9: { id: 'fc9', name: 'Force 9', spawn: ['centurion', 'centurion'] },
+  fc10: { id: 'fc10', name: 'Force 10', spawn: ['razide', 'necromutant'] },
+  fc11: { id: 'fc11', name: 'Force 11', spawn: ['legionnaire', 'legionnaire', 'necromutant'] },
+  fc12: { id: 'fc12', name: 'Force 12', spawn: ['centurion', 'razide'] },
 };
 
-// Helper: build a perimeter-free layout; sectors are open to each other where
-// they touch. (The original boards have interior room walls; this digital port
-// keeps sectors open and relies on figures + the Citadel for cover.)
-function noWalls(): Wall[] {
-  return [];
+const ALL_CORPS = ['Bauhaus', 'Imperial', 'Capitol'];
+function corpTroopers(corps: string[]): Record<string, string[]> {
+  return Object.fromEntries(corps.map((c) => [c, CORP_TROOPERS[c]]));
+}
+
+interface Build {
+  id: string;
+  number?: number;
+  name: string;
+  briefing: string;
+  objective: string;
+  sectorDefs: [number, string, number, number][]; // id, image, col, row
+  citadel?: { x: number; y: number; w: number; h: number };
+  trooperEntrances: { x: number; y: number }[];
+  legionEntrances: { x: number; y: number }[];
+  exits?: { x: number; y: number }[];
+  timeLimitRounds: number;
+  forceCardSectors: [string, number][]; // [cardId, sectorId]
+  placements?: Placement[];
+  corporations?: string[];
+  win: MissionDef['win'];
+  reward?: { troopers: number; legion: number };
+  usesEvents?: boolean;
+}
+
+function build(b: Build): MissionDef {
+  const sectors = b.sectorDefs.map(([id, img, c, r]) => sector(id, img, c, r));
+  const corps = b.corporations ?? ALL_CORPS;
+  return {
+    id: b.id,
+    number: b.number,
+    name: b.name,
+    briefing: b.briefing,
+    objective: b.objective,
+    sectors,
+    walls: wallsForSectors(sectors),
+    citadel: b.citadel,
+    trooperEntrances: b.trooperEntrances,
+    legionEntrances: b.legionEntrances,
+    exits: b.exits,
+    timeLimitRounds: b.timeLimitRounds,
+    forceCards: b.forceCardSectors.map(([cardId, sectorId]) => ({ cardId, sectorId, revealed: false })),
+    placements: b.placements,
+    corporations: corps,
+    troopersPerCorp: corpTroopers(corps),
+    win: b.win,
+    reward: b.reward,
+    usesEvents: b.usesEvents,
+  };
 }
 
 // ===== Trial by Fire (training) =====
-// Sectors 1,2 across the top; 4,5,3 across the middle; troopers enter from the
-// top edge; the Dark Legion pours out of the Citadel.
-const trial: MissionDef = {
+const trial = build({
   id: 'trial',
   name: 'Trial by Fire (Training)',
-  briefing:
-    'A fast-play training mission. Two corporation teams strike into the Citadel ' +
-    'while one player commands the Dark Legion. Learn movement, line of sight and combat.',
+  briefing: 'A fast-play training mission. Two corporation teams strike in while one player commands the Dark Legion. Learn movement, line of sight and combat.',
   objective: 'Corporations: eliminate every Dark Legion creature. Dark Legion: eliminate all Doomtroopers.',
-  sectors: [
-    sector(1, 'map1.jpg', 0, 0),
-    sector(2, 'map2.jpg', 1, 0),
-    sector(4, 'map4.jpg', 0, 1),
-    sector(5, 'map5.jpg', 1, 1),
-    sector(3, 'map3.jpg', 2, 1),
-  ],
-  walls: noWalls(),
+  sectorDefs: [[1, 'map1.jpg', 0, 0], [2, 'map2.jpg', 1, 0], [4, 'map4.jpg', 0, 1], [5, 'map5.jpg', 1, 1], [3, 'map3.jpg', 2, 1]],
   citadel: { x: 15, y: 7, w: 2, h: 2 },
-  trooperEntrances: [
-    { x: 1, y: 0 }, { x: 2, y: 0 },
-    { x: 9, y: 0 }, { x: 10, y: 0 },
-  ],
+  trooperEntrances: [{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 9, y: 0 }, { x: 10, y: 0 }],
   legionEntrances: [{ x: 14, y: 8 }, { x: 17, y: 8 }, { x: 15, y: 9 }],
   timeLimitRounds: 99,
-  forceCards: [
-    { cardId: 'fc1', sectorId: 1, revealed: false },
-    { cardId: 'fc2', sectorId: 2, revealed: false },
-    { cardId: 'fc4', sectorId: 4, revealed: false },
-    { cardId: 'fc5', sectorId: 5, revealed: false },
-    { cardId: 'fc7', sectorId: 3, revealed: false },
-  ],
+  forceCardSectors: [['fc1', 1], ['fc2', 2], ['fc4', 4], ['fc5', 5], ['fc7', 3]],
   corporations: ['Bauhaus', 'Imperial'],
-  troopersPerCorp: {
-    Bauhaus: ['valerieduval', 'steiner'],
-    Imperial: ['murdoch', 'seangallagher'],
-  },
   win: { kind: 'eliminate-all' },
-};
+});
 
 // ===== Mission 1: Eagle Strike =====
-const eagleStrike: MissionDef = {
-  id: 'eagle',
-  name: 'Mission 1: Eagle Strike',
-  briefing:
-    'The entrance to Alakhai\'s Citadel has been blown open by the bomb squad. ' +
-    'Strike deep and break the Dark Legion\'s defenders.',
-  objective:
-    'Doomtroopers must earn 20 Promotion Points of Dark Legion kills, then exit ' +
-    'one trooper from sector 1 or 4 to collect the reward.',
-  sectors: [
-    sector(1, 'map1.jpg', 0, 0),
-    sector(2, 'map2.jpg', 1, 0),
-    sector(5, 'map5.jpg', 2, 0),
-    sector(4, 'map4.jpg', 0, 1),
-    sector(3, 'map3.jpg', 1, 1),
-    sector(6, 'map6.jpg', 2, 1),
-  ],
-  walls: noWalls(),
+const m1 = build({
+  id: 'eagle', number: 1, name: 'Mission 1: Eagle Strike',
+  briefing: 'The Citadel entrance is blown open. Strike deep, break the defenders, then withdraw.',
+  objective: 'Earn 20 Promotion Points of Dark Legion kills, then exit one trooper from the entry edge.',
+  sectorDefs: [[1, 'map1.jpg', 0, 0], [2, 'map2.jpg', 1, 0], [5, 'map5.jpg', 2, 0], [4, 'map4.jpg', 0, 1], [3, 'map3.jpg', 1, 1], [6, 'map6.jpg', 2, 1]],
   citadel: { x: 11, y: 7, w: 2, h: 2 },
-  trooperEntrances: [
-    { x: 0, y: 3 }, { x: 0, y: 4 },
-    { x: 0, y: 11 }, { x: 0, y: 12 },
-  ],
+  trooperEntrances: [{ x: 0, y: 3 }, { x: 0, y: 4 }, { x: 0, y: 11 }, { x: 0, y: 12 }],
   legionEntrances: [{ x: 10, y: 8 }, { x: 13, y: 8 }, { x: 11, y: 9 }],
   exits: [{ x: 0, y: 3 }, { x: 0, y: 4 }, { x: 0, y: 11 }, { x: 0, y: 12 }],
   timeLimitRounds: 4,
-  forceCards: [
-    { cardId: 'fc1', sectorId: 1, revealed: false },
-    { cardId: 'fc2', sectorId: 2, revealed: false },
-    { cardId: 'fc3', sectorId: 5, revealed: false },
-    { cardId: 'fc4', sectorId: 4, revealed: false },
-    { cardId: 'fc5', sectorId: 3, revealed: false },
-    { cardId: 'fc7', sectorId: 6, revealed: false },
-  ],
-  corporations: ['Bauhaus', 'Imperial', 'Capitol'],
-  troopersPerCorp: {
-    Bauhaus: ['valerieduval', 'steiner'],
-    Imperial: ['murdoch', 'seangallagher'],
-    Capitol: ['bigbob', 'hunter'],
-  },
-  win: { kind: 'promotion', points: 20 },
-};
+  forceCardSectors: [['fc1', 1], ['fc2', 2], ['fc3', 5], ['fc4', 4], ['fc5', 3], ['fc7', 6]],
+  win: { kind: 'promotion', points: 20, escape: true }, reward: { troopers: 1, legion: 2 }, usesEvents: true,
+});
+
+// ===== Mission 2: Trapped! =====
+const m2 = build({
+  id: 'trapped', number: 2, name: 'Mission 2: Trapped!',
+  briefing: 'A gigantic Ezoghoul is hot on your heels. Make the long run home before it catches you.',
+  objective: 'Get a trooper to the escape exit before the mission ends.',
+  sectorDefs: [[8, 'map8.jpg', 1, 0], [2, 'map2.jpg', 2, 0], [3, 'map3.jpg', 3, 0], [4, 'map4.jpg', 0, 1], [5, 'map5.jpg', 1, 1], [7, 'map7.jpg', 2, 1]],
+  trooperEntrances: [{ x: 9, y: 0 }, { x: 10, y: 0 }],
+  legionEntrances: [{ x: 24, y: 3 }, { x: 24, y: 4 }],
+  exits: [{ x: 24, y: 3 }, { x: 24, y: 4 }],
+  timeLimitRounds: 7,
+  forceCardSectors: [['fc3', 8], ['fc4', 2], ['fc5', 3], ['fc6', 4], ['fc7', 5]],
+  placements: [{ typeId: 'ezoghoul', x: 9, y: 7, tag: 'hunter' }],
+  win: { kind: 'escape', count: 1 }, reward: { troopers: 1, legion: 1 }, usesEvents: true,
+});
+
+// ===== Mission 3: Get the Boss! =====
+const m3 = build({
+  id: 'getboss', number: 3, name: 'Mission 3: Get the Boss!',
+  briefing: 'Eliminating ordinary troops is not enough. Find and destroy the Centurion subcommander, Ghash.',
+  objective: 'Eliminate Ghash (the tagged Centurion). No ordinary Centurions are used.',
+  sectorDefs: [[3, 'map3.jpg', 2, 0], [2, 'map2.jpg', 1, 0], [5, 'map5.jpg', 2, 1], [4, 'map4.jpg', 0, 1], [1, 'map1.jpg', 1, 1]],
+  citadel: { x: 13, y: 7, w: 2, h: 2 },
+  trooperEntrances: [{ x: 0, y: 11 }, { x: 0, y: 12 }, { x: 8, y: 0 }, { x: 9, y: 0 }],
+  legionEntrances: [{ x: 12, y: 8 }, { x: 15, y: 8 }],
+  timeLimitRounds: 8,
+  forceCardSectors: [['fc1', 3], ['fc2', 2], ['fc4', 5], ['fc7', 4], ['fc5', 1]],
+  placements: [{ typeId: 'centurion', x: 18, y: 3, tag: 'boss' }],
+  win: { kind: 'eliminate-tagged', tag: 'boss', label: 'Ghash, the Centurion subcommander' },
+  reward: { troopers: 2, legion: 2 }, usesEvents: true,
+});
+
+// ===== Mission 4: Assault on the East Tower =====
+const m4 = build({
+  id: 'easttower', number: 4, name: 'Mission 4: Assault on the East Tower',
+  briefing: 'The Dark Legion is massing near the east tower. Break their lines and wipe out the horde.',
+  objective: 'Eliminate every Dark Legion figure on the board.',
+  sectorDefs: [[7, 'map7.jpg', 1, 0], [8, 'map8.jpg', 2, 0], [3, 'map3.jpg', 3, 0], [5, 'map5.jpg', 0, 1], [2, 'map2.jpg', 1, 1], [6, 'map6.jpg', 2, 1], [4, 'map4.jpg', 0, 2], [1, 'map1.jpg', 1, 2]],
+  trooperEntrances: [{ x: 0, y: 11 }, { x: 8, y: 23 }, { x: 9, y: 23 }, { x: 16, y: 23 }],
+  legionEntrances: [{ x: 12, y: 8 }, { x: 20, y: 8 }],
+  timeLimitRounds: 8,
+  forceCardSectors: [['fc1', 7], ['fc2', 8], ['fc4', 3], ['fc8', 5], ['fc5', 2], ['fc12', 6], ['fc7', 4], ['fc9', 1]],
+  win: { kind: 'eliminate-all' }, reward: { troopers: 2, legion: 2 }, usesEvents: true,
+});
+
+// ===== Mission 5: Break Their Back! =====
+const m5 = build({
+  id: 'breakback', number: 5, name: 'Mission 5: Break Their Back!',
+  briefing: 'A High-Tec battle computer is breaking your resistance. Find it and destroy it.',
+  objective: 'Destroy the Battle Computer (Armor 2 — strike 2+ hits in one attack).',
+  sectorDefs: [[1, 'map1.jpg', 0, 0], [3, 'map3.jpg', 1, 0], [8, 'map8.jpg', 2, 0], [6, 'map6.jpg', 3, 0], [2, 'map2.jpg', 1, 1], [5, 'map5.jpg', 2, 1], [4, 'map4.jpg', 0, 1]],
+  trooperEntrances: [{ x: 0, y: 3 }, { x: 0, y: 4 }, { x: 8, y: 0 }, { x: 9, y: 0 }],
+  legionEntrances: [{ x: 19, y: 3 }, { x: 19, y: 4 }],
+  timeLimitRounds: 6,
+  forceCardSectors: [['fc1', 1], ['fc2', 3], ['fc4', 8], ['fc8', 6], ['fc5', 2], ['fc9', 5]],
+  placements: [{ typeId: 'computer', x: 19, y: 11, tag: 'target' }],
+  win: { kind: 'eliminate-tagged', tag: 'target', label: 'the Battle Computer' },
+  reward: { troopers: 3, legion: 2 }, usesEvents: true,
+});
+
+// ===== Mission 6: Hold the Fort =====
+const m6 = build({
+  id: 'holdfort', number: 6, name: 'Mission 6: Hold the Fort',
+  briefing: 'The Dark Legion is trying to break through near the east tower. Hold the line — don\'t let them past.',
+  objective: 'Survive all rounds. If any Doomtrooper is still standing at the time limit, you hold.',
+  sectorDefs: [[7, 'map7.jpg', 1, 0], [3, 'map3.jpg', 2, 0], [1, 'map1.jpg', 3, 0], [8, 'map8.jpg', 1, 1], [2, 'map2.jpg', 2, 1], [5, 'map5.jpg', 0, 1]],
+  trooperEntrances: [{ x: 8, y: 0 }, { x: 9, y: 0 }, { x: 10, y: 0 }, { x: 11, y: 0 }],
+  legionEntrances: [{ x: 24, y: 3 }, { x: 24, y: 4 }],
+  timeLimitRounds: 6,
+  forceCardSectors: [['fc4', 7], ['fc8', 3], ['fc9', 1], ['fc7', 8], ['fc12', 2]],
+  win: { kind: 'survive' }, reward: { troopers: 1, legion: 3 }, usesEvents: true,
+});
+
+// ===== Mission 7: Portal of Doom =====
+const m7 = build({
+  id: 'portal', number: 7, name: 'Mission 7: Portal of Doom',
+  briefing: 'Search the catacombs for the Portal of Doom and pass through to learn what lies beyond.',
+  objective: 'Get at least two Doomtroopers through the portal (exit on the far edge).',
+  sectorDefs: [[6, 'map6.jpg', 0, 0], [1, 'map1.jpg', 1, 0], [7, 'map7.jpg', 2, 0], [8, 'map8.jpg', 3, 0], [5, 'map5.jpg', 2, 1], [2, 'map2.jpg', 1, 1]],
+  trooperEntrances: [{ x: 16, y: 0 }, { x: 17, y: 0 }, { x: 8, y: 7 }, { x: 9, y: 7 }],
+  legionEntrances: [{ x: 0, y: 3 }, { x: 0, y: 4 }],
+  exits: [{ x: 31, y: 3 }, { x: 31, y: 4 }, { x: 31, y: 5 }],
+  timeLimitRounds: 6,
+  forceCardSectors: [['fc1', 6], ['fc2', 1], ['fc4', 7], ['fc8', 8], ['fc9', 5], ['fc10', 2]],
+  win: { kind: 'escape', count: 2 }, reward: { troopers: 3, legion: 2 }, usesEvents: true,
+});
+
+// ===== Mission 8: To the Top =====
+const m8 = build({
+  id: 'tothetop', number: 8, name: 'Mission 8: To the Top',
+  briefing: 'A powerful combat-teleporter sits in the top level of the Citadel. Destroy both doorways.',
+  objective: 'Destroy both Teleporter Doorways (Armor 3 — strike 4 hits in one attack).',
+  sectorDefs: [[1, 'map1.jpg', 2, 0], [3, 'map3.jpg', 1, 0], [8, 'map8.jpg', 2, 1], [5, 'map5.jpg', 0, 1], [6, 'map6.jpg', 1, 1], [4, 'map4.jpg', 1, 2], [7, 'map7.jpg', 2, 2]],
+  citadel: { x: 19, y: 7, w: 2, h: 2 },
+  trooperEntrances: [{ x: 16, y: 0 }, { x: 17, y: 0 }, { x: 0, y: 8 }, { x: 0, y: 9 }],
+  legionEntrances: [{ x: 18, y: 9 }, { x: 21, y: 9 }],
+  timeLimitRounds: 5,
+  forceCardSectors: [['fc1', 1], ['fc4', 3], ['fc9', 8], ['fc8', 5], ['fc12', 6], ['fc7', 4], ['fc10', 7]],
+  placements: [{ typeId: 'door', x: 17, y: 3, tag: 'door' }, { typeId: 'door', x: 12, y: 11, tag: 'door' }],
+  win: { kind: 'eliminate-tagged', tag: 'door', label: 'both Teleporter Doorways' },
+  reward: { troopers: 3, legion: 1 }, usesEvents: true,
+});
+
+// ===== Mission 9: Corridors of Death =====
+const m9 = build({
+  id: 'corridors', number: 9, name: 'Mission 9: Corridors of Death',
+  briefing: 'An Ezoghoul lurks in the lowest level of the Citadel. Get down there and wipe it out.',
+  objective: 'Eliminate the Ezoghoul.',
+  sectorDefs: [[1, 'map1.jpg', 0, 0], [2, 'map2.jpg', 1, 0], [7, 'map7.jpg', 2, 0], [4, 'map4.jpg', 0, 1], [6, 'map6.jpg', 1, 1], [5, 'map5.jpg', 2, 1], [3, 'map3.jpg', 1, 2], [8, 'map8.jpg', 2, 2]],
+  trooperEntrances: [{ x: 0, y: 3 }, { x: 0, y: 11 }, { x: 16, y: 0 }, { x: 17, y: 0 }],
+  legionEntrances: [{ x: 12, y: 16 }, { x: 20, y: 16 }],
+  timeLimitRounds: 9,
+  forceCardSectors: [['fc1', 1], ['fc2', 2], ['fc4', 7], ['fc8', 4], ['fc9', 6], ['fc5', 5], ['fc7', 3]],
+  placements: [{ typeId: 'ezoghoul', x: 18, y: 19, tag: 'boss' }],
+  win: { kind: 'eliminate-tagged', tag: 'boss', label: 'the Ezoghoul' },
+  reward: { troopers: 3, legion: 2 }, usesEvents: true,
+});
+
+// ===== Mission 10: The Hunt for Alakhai =====
+const m10 = build({
+  id: 'alakhai', number: 10, name: 'Mission 10: The Hunt for Alakhai',
+  briefing: 'The Nepharite Alakhai, Lord of the Citadel, is finally located. Go in and eliminate him.',
+  objective: 'Eliminate the Nepharite Alakhai (4 actions per round). Enter and exit only via Sector 1 or 2.',
+  sectorDefs: [[4, 'map4.jpg', 1, 0], [5, 'map5.jpg', 2, 0], [6, 'map6.jpg', 0, 1], [1, 'map1.jpg', 1, 1], [3, 'map3.jpg', 2, 1], [8, 'map8.jpg', 1, 2], [7, 'map7.jpg', 2, 2]],
+  citadel: { x: 11, y: 7, w: 2, h: 2 },
+  trooperEntrances: [{ x: 8, y: 0 }, { x: 9, y: 0 }, { x: 16, y: 0 }, { x: 17, y: 0 }],
+  legionEntrances: [{ x: 0, y: 11 }, { x: 11, y: 9 }],
+  timeLimitRounds: 8,
+  forceCardSectors: [['fc1', 4], ['fc2', 5], ['fc4', 6], ['fc8', 1], ['fc9', 3], ['fc12', 8], ['fc7', 7]],
+  placements: [{ typeId: 'nepharite', x: 12, y: 11, tag: 'boss' }],
+  win: { kind: 'eliminate-tagged', tag: 'boss', label: 'the Nepharite Alakhai' },
+  reward: { troopers: 2, legion: 2 }, usesEvents: true,
+});
 
 export const MISSIONS: Record<string, MissionDef> = {
-  trial,
-  eagle: eagleStrike,
+  trial, eagle: m1, trapped: m2, getboss: m3, easttower: m4, breakback: m5,
+  holdfort: m6, portal: m7, tothetop: m8, corridors: m9, alakhai: m10,
 };
 
-export const MISSION_LIST = [trial, eagleStrike];
+export const MISSION_LIST = [trial, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10];
+export const CAMPAIGN_MISSIONS = [m1, m2, m3, m4, m5, m6, m7, m8, m9, m10];

@@ -1,13 +1,14 @@
 import { Rng } from 'digital-boardgame-framework';
 import type { GameAdapter, GameResult } from 'digital-boardgame-framework';
 import type { GameState, Action, Figure, MissionDef, PlayerSeat } from './types';
-import { figureType, CORP_TROOPERS } from './data';
+import { figureType, effectiveType, CORP_TROOPERS } from './data';
 import { MISSIONS, FORCE_CARDS } from './missions';
+import { EVENTS, EQUIPMENT, buildEventDeck } from './cards';
 import {
   onBoard, figureAt, canStep, dist, hasLineOfSight, resolveAttack,
 } from './rules';
 
-const SCHEMA = 1;
+const SCHEMA = 2;
 
 // ---------- setup ----------
 
@@ -15,6 +16,8 @@ export interface NewGameOpts {
   missionId: string;
   corporations?: string[];   // override which corps play (default = mission default)
   seed?: number;
+  rank?: Record<string, number>;    // campaign carry-in: starting rank per corp
+  credits?: Record<string, number>; // campaign carry-in: starting credits per corp
 }
 
 let UID = 0;
@@ -34,6 +37,9 @@ export function createInitialState(opts: NewGameOpts): GameState {
     ...corps.map((c) => ({ id: c, name: c, isLegion: false })),
   ];
 
+  const rank = Object.fromEntries(corps.map((c) => [c, opts.rank?.[c] ?? 1]));
+  const credits = Object.fromEntries(corps.map((c) => [c, opts.credits?.[c] ?? 0]));
+
   // Place troopers at entrance squares (cycling through entrances).
   const figures: Figure[] = [];
   const entrances = mission.trooperEntrances;
@@ -41,21 +47,28 @@ export function createInitialState(opts: NewGameOpts): GameState {
   for (const corp of corps) {
     const ids = mission.troopersPerCorp[corp] ?? CORP_TROOPERS[corp] ?? [];
     for (const tid of ids) {
-      const ft = figureType(tid);
       const ent = entrances[ei % entrances.length];
       ei++;
-      figures.push({
-        uid: nextUid('t'),
-        typeId: tid,
-        owner: corp,
-        x: ent.x,
-        y: ent.y,
-        woundsTaken: 0,
-        actionsLeft: ft.actions,
-        alive: true,
-      });
+      const fig: Figure = {
+        uid: nextUid('t'), typeId: tid, owner: corp,
+        x: ent.x, y: ent.y, woundsTaken: 0, actionsLeft: 0, alive: true, equipment: [],
+      };
+      fig.actionsLeft = effectiveType(fig, rank[corp]).actions;
+      figures.push(fig);
     }
   }
+
+  // Place objective figures (bosses, doorways, the hunting Ezoghoul).
+  for (const p of mission.placements ?? []) {
+    figures.push({
+      uid: nextUid('o'), typeId: p.typeId, owner: 'legion',
+      x: p.x, y: p.y, woundsTaken: 0, actionsLeft: 0, alive: true, tag: p.tag,
+    });
+  }
+
+  const usesEvents = !!mission.usesEvents;
+  const rng = Rng.fromState(seed);
+  const eventDeck = usesEvents ? rng.shuffle(buildEventDeck()) : [];
 
   return {
     schema: SCHEMA,
@@ -76,10 +89,16 @@ export function createInitialState(opts: NewGameOpts): GameState {
     promotion: Object.fromEntries(corps.map((c) => [c, 0])),
     legionKills: 0,
     escaped: 0,
+    rank,
+    credits,
+    usesEvents,
+    eventDeck,
+    pendingEvent: null,
+    setupDone: false,
     win: mission.win,
     winners: null,
-    rngState: seed,
-    log: ['Setup complete. Press Start to begin Round 1.'],
+    rngState: rng.serialize(),
+    log: ['Setup. Assign equipment, then Start the mission.'],
   };
 }
 
@@ -158,13 +177,51 @@ function shuffledSeatOrder(s: GameState): string[] {
 function beginRound(s: GameState) {
   s.round += 1;
   (s as any)._steps = {}; // clear any in-progress move steps
-  // reset actions for all figures
+
+  // Dark Legion event card (if the mission uses events)
+  let frenzy = false;
+  s.pendingEvent = null;
+  if (s.usesEvents && s.eventDeck.length > 0) {
+    const id = s.eventDeck.shift()!;
+    s.pendingEvent = id;
+    const ev = EVENTS[id];
+    s.log.push(`Dark Legion event: ${ev.name} — ${ev.blurb}`);
+    if (ev.spawn) spawnAtLegionEntrance(s, ev.spawn);
+    if (ev.legionFrenzy) frenzy = true;
+  }
+  (s as any)._frenzy = frenzy;
+
+  // reset actions for all figures (equipment / rank / frenzy folded in)
   for (const f of s.figures) {
-    if (f.alive) f.actionsLeft = figureType(f.typeId).actions;
+    if (f.alive) f.actionsLeft = effectiveType(f, s.rank[f.owner] ?? 1, frenzy).actions;
   }
   s.drawOrder = shuffledSeatOrder(s);
   s.log.push(`— Round ${s.round} — turn order drawn.`);
   revealNextSeat(s);
+}
+
+/** Deploy creatures at (or next to) a Dark Legion entrance. */
+function spawnAtLegionEntrance(s: GameState, creatures: string[]) {
+  for (const cid of creatures) {
+    const spot = findOpenNearEntrances(s);
+    if (!spot) break;
+    s.figures.push({
+      uid: nextUid('c'), typeId: cid, owner: 'legion',
+      x: spot.x, y: spot.y, woundsTaken: 0, actionsLeft: 0, alive: true,
+    });
+  }
+}
+
+function findOpenNearEntrances(s: GameState): { x: number; y: number } | null {
+  for (const e of s.legionEntrances) {
+    if (onBoard(s, e.x, e.y) && !figureAt(s, e.x, e.y)) return { x: e.x, y: e.y };
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++) {
+        const x = e.x + dx, y = e.y + dy;
+        if (onBoard(s, x, y) && !figureAt(s, x, y)) return { x, y };
+      }
+  }
+  return null;
 }
 
 function revealNextSeat(s: GameState) {
@@ -207,7 +264,24 @@ function setWinner(s: GameState, winners: string[], reason: string) {
   s.phase = 'over';
   s.activeSeat = null;
   s.winners = winners;
+  // award mission-completion credits
+  const mission = MISSIONS[s.missionId];
+  const reward = mission?.reward;
+  if (reward) {
+    const troopersWon = winners.some((w) => w !== 'legion');
+    const amt = troopersWon ? reward.troopers : reward.legion;
+    if (troopersWon) {
+      for (const c of Object.keys(s.credits)) s.credits[c] += amt;
+    }
+  }
   s.log.push(`GAME OVER — ${reason}`);
+}
+
+/** Has the objective that gates escape been met (for promotion+escape missions)? */
+function escapeAllowed(s: GameState): boolean {
+  if (s.win.kind === 'escape') return true;
+  if (s.win.kind === 'promotion' && s.win.escape) return totalPromotion(s) >= s.win.points;
+  return false;
 }
 
 function checkWin(s: GameState) {
@@ -228,8 +302,9 @@ function checkWin(s: GameState) {
       break;
     }
     case 'promotion': {
-      if (totalPromotion(s) >= s.win.points && s.escaped >= 1) {
-        setWinner(s, corps, `Objective complete — ${totalPromotion(s)} promotion points earned and a trooper escaped.`);
+      const need = s.win.escape ? s.escaped >= 1 : true;
+      if (totalPromotion(s) >= s.win.points && need) {
+        setWinner(s, corps, `Objective complete — ${totalPromotion(s)} promotion points earned${s.win.escape ? ' and a trooper escaped' : ''}.`);
       }
       break;
     }
@@ -239,13 +314,26 @@ function checkWin(s: GameState) {
       }
       break;
     }
+    case 'eliminate-tagged': {
+      const tag = s.win.tag;
+      const tagged = s.figures.filter((f) => f.tag === tag);
+      const aliveTagged = tagged.filter((f) => f.alive);
+      if (tagged.length > 0 && aliveTagged.length === 0) {
+        setWinner(s, corps, `${s.win.label} destroyed. The Doomtroopers win!`);
+      }
+      break;
+    }
+    // 'survive' resolves only at the time limit (see resolveTimeLimit)
   }
 }
 
 function resolveTimeLimit(s: GameState) {
   const corps = s.seats.filter((x) => !x.isLegion).map((x) => x.id);
-  // Troopers failed to complete in time → Dark Legion wins.
-  setWinner(s, ['legion'], `Time limit (${s.timeLimitRounds} rounds) reached. The Dark Legion holds. Legion wins.`);
+  if (s.win.kind === 'survive') {
+    setWinner(s, corps, `Held the line for ${s.timeLimitRounds} rounds. The Doomtroopers win!`);
+  } else {
+    setWinner(s, ['legion'], `Time limit (${s.timeLimitRounds} rounds) reached. The Dark Legion holds. Legion wins.`);
+  }
 }
 
 // ---------- in-progress move steps ----------
@@ -307,7 +395,7 @@ export const adapter: GameAdapter<GameState, Action, string> = {
           }
       }
       if (f.actionsLeft > 0) {
-        const ft = figureType(f.typeId);
+        const ft = effectiveType(f, s.rank[f.owner] ?? 1, (s as any)._frenzy);
         for (const target of s.figures) {
           if (!target.alive) continue;
           const enemy = (f.owner === 'legion') !== (target.owner === 'legion');
@@ -340,9 +428,41 @@ export const adapter: GameAdapter<GameState, Action, string> = {
 
     if (s.phase === 'over') return { state, ok: false, reason: 'game over' };
 
+    if (action.type === 'equip') {
+      if (s.phase !== 'setup') return { state, ok: false, reason: 'equipment locked' };
+      const fig = s.figures.find((x) => x.uid === action.trooperUid && x.owner === action.corp);
+      if (!fig) return { state, ok: false, reason: 'no such trooper' };
+      const e = EQUIPMENT[action.cardId];
+      if (!e) return { state, ok: false, reason: 'no such card' };
+      const rank = s.rank[action.corp] ?? 1;
+      if (e.kind === 'weapon' && rank < e.rank) return { state, ok: false, reason: `needs rank ${e.rank}` };
+      fig.equipment ??= [];
+      if (fig.equipment.includes(action.cardId)) {
+        // toggle off — refund gear credits
+        fig.equipment = fig.equipment.filter((c) => c !== action.cardId);
+        if (e.kind === 'gear') s.credits[action.corp] += e.cost;
+      } else {
+        if (e.kind === 'weapon' && fig.equipment.some((c) => EQUIPMENT[c]?.kind === 'weapon'))
+          return { state, ok: false, reason: 'one special weapon per trooper' };
+        if (e.kind === 'gear' && (s.credits[action.corp] ?? 0) < e.cost)
+          return { state, ok: false, reason: 'not enough credits' };
+        fig.equipment.push(action.cardId);
+        if (e.kind === 'gear') s.credits[action.corp] -= e.cost;
+      }
+      // refresh starting actions to reflect equipment
+      fig.actionsLeft = effectiveType(fig, rank).actions;
+      return { state: s, ok: true };
+    }
+
+    if (action.type === 'finish-setup') {
+      s.setupDone = true;
+      return { state: s, ok: true };
+    }
+
     if (action.type === 'start') {
       if (s.phase !== 'setup') return { state, ok: false, reason: 'already started' };
       s.phase = 'play';
+      s.setupDone = true;
       beginRound(s);
       return { state: s, ok: true };
     }
@@ -380,14 +500,10 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       setSteps(s, f.uid, steps - 1);
 
       // trooper escaping via an exit?
-      if (f.owner !== 'legion' && s.exits.some((e) => e.x === f.x && e.y === f.y)) {
-        const objMet =
-          s.win.kind !== 'promotion' || totalPromotion(s) >= (s.win as any).points;
-        if (objMet) {
-          f.alive = false;
-          s.escaped += 1;
-          s.log.push(`${figureType(f.typeId).name} escaped off the board!`);
-        }
+      if (f.owner !== 'legion' && s.exits.some((e) => e.x === f.x && e.y === f.y) && escapeAllowed(s)) {
+        f.alive = false;
+        s.escaped += 1;
+        s.log.push(`${figureType(f.typeId).name} escaped off the board!`);
       } else if (f.owner !== 'legion') {
         maybeRevealForceCard(s, f.x, f.y);
       }
@@ -404,7 +520,8 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       if (!target) return { state, ok: false, reason: 'no target' };
       const enemy = (f.owner === 'legion') !== (target.owner === 'legion');
       if (!enemy) return { state, ok: false, reason: 'cannot attack ally' };
-      const ft = figureType(f.typeId);
+      const ft = effectiveType(f, s.rank[f.owner] ?? 1, (s as any)._frenzy);
+      const tt = effectiveType(target, s.rank[target.owner] ?? 1, (s as any)._frenzy);
       const w = ft.weapons[action.weaponIdx];
       if (!w) return { state, ok: false, reason: 'bad weapon' };
       const d = dist(f.x, f.y, target.x, target.y);
@@ -418,7 +535,7 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       f.actionsLeft -= 1;
       setSteps(s, f.uid, 0); // attacking ends any in-progress move
       const rng = rngFor(s);
-      const out = resolveAttack(rng, f, target, action.weaponIdx);
+      const out = resolveAttack(rng, ft, tt, target.woundsTaken, action.weaponIdx);
       s.rngState = rng.serialize();
       s.lastRoll = { dice: out.dice, color: out.color, hits: out.hits, label: out.label };
       s.log.push(out.label);

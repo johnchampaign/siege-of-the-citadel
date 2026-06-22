@@ -3,11 +3,17 @@ import { RandomAI, Rng } from 'digital-boardgame-framework';
 import { adapter, createInitialState } from '../game/adapter';
 import type { GameState, Action } from '../game/types';
 
+export interface ResetOpts {
+  rank?: Record<string, number>;
+  credits?: Record<string, number>;
+  corporations?: string[];
+}
+
 export interface LocalGame {
   state: GameState;
   legal: Action[];
   submit: (a: Action) => void;
-  reset: (missionId: string, seed: number) => void;
+  reset: (missionId: string, seed: number, opts?: ResetOpts) => void;
   legionAI: boolean;
   setLegionAI: (v: boolean) => void;
 }
@@ -29,8 +35,8 @@ export function useLocalGame(initialMission: string): LocalGame {
     });
   }, []);
 
-  const reset = useCallback((missionId: string, seed: number) => {
-    setState(createInitialState({ missionId, seed }));
+  const reset = useCallback((missionId: string, seed: number, opts?: ResetOpts) => {
+    setState(createInitialState({ missionId, seed, ...opts }));
   }, []);
 
   // Drive the Dark Legion automatically when it's their turn.

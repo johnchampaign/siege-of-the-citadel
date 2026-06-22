@@ -1,6 +1,7 @@
 // Headless engine smoke test. Run: npx tsx src/game/engine.test.ts
-import { RandomAI } from 'digital-boardgame-framework';
+import { RandomAI, Rng } from 'digital-boardgame-framework';
 import { adapter, createInitialState } from './adapter';
+import { MISSION_LIST } from './missions';
 import type { GameState, Action } from './types';
 
 let pass = 0, fail = 0;
@@ -53,6 +54,33 @@ async function playOut(seed: number): Promise<GameState> {
   check('deterministic: same round count', a.round === b.round);
   await playOut(42);
   await playOut(99);
+
+  // --- every mission is well-formed and reaches a terminal state ---
+  for (const m of MISSION_LIST) {
+    let g = createInitialState({ missionId: m.id, seed: 5 });
+    check(`${m.id}: troopers placed`, g.figures.some((f) => f.owner !== 'legion'));
+    g = adapter.applyAction(g, { type: 'start' }, g.seats[0].id);
+    const ai = new RandomAI<GameState, Action, string>();
+    const rng = Rng.fromState(123);
+    let guard = 0;
+    while (g.phase !== 'over' && guard < 30000) {
+      guard++;
+      const actor = adapter.currentActor(g);
+      if (!actor) break;
+      g = adapter.applyAction(g, await ai.selectAction({ state: g, actor, adapter, rng }), actor);
+    }
+    check(`${m.id}: terminates → ${g.winners}`, g.phase === 'over');
+  }
+
+  // --- equipment affects effective stats ---
+  {
+    let g = createInitialState({ missionId: 'eagle', seed: 1, rank: { Bauhaus: 3 }, credits: { Bauhaus: 5 } });
+    const t = g.figures.find((f) => f.owner === 'Bauhaus')!;
+    g = adapter.applyAction(g, { type: 'equip', corp: 'Bauhaus', trooperUid: t.uid, cardId: 'helmet' }, 'legion');
+    const eq = g.figures.find((f) => f.uid === t.uid)!;
+    check('equip: helmet recorded', (eq.equipment ?? []).includes('helmet'));
+    check('equip: credits spent', g.credits.Bauhaus === 2);
+  }
 
   // --- combat sanity: a Legionnaire (armor 0) dies to enough hits ---
   let g = createInitialState({ missionId: 'trial', seed: 3 });

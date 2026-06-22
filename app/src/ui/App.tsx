@@ -1,10 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Board } from './Board';
 import { useLocalGame } from './useLocalGame';
 import { MISSION_LIST, FORCE_CARDS } from '../game/missions';
 import { figureType, CORP_SPECIAL } from '../game/data';
-import type { Action } from '../game/types';
+import { EQUIPMENT_LIST, EVENTS } from '../game/cards';
+import type { Action, GameState } from '../game/types';
 import { useAssets, VASSAL_MODULE_URL, VASSAL_MODULE_PAGE } from './assets';
+import {
+  type CampaignState, loadCampaign, saveCampaign, newCampaign, clearCampaign,
+  ranks, currentMission, isComplete, recordResult, CAMPAIGN_CORPS,
+} from '../game/campaign';
 
 export const App: React.FC = () => {
   const [missionId, setMissionId] = useState('trial');
@@ -15,6 +20,19 @@ export const App: React.FC = () => {
   const assets = useAssets();
   const [theme, setTheme] = useState<'designed' | 'art'>('designed');
   const useArt = theme === 'art' && assets.loaded;
+  const [campaign, setCampaign] = useState<CampaignState | null>(() => loadCampaign());
+  const [inCampaign, setInCampaign] = useState(false);
+  const recordedRef = React.useRef(false);
+
+  // When a campaign mission ends, fold the result into the campaign once.
+  useEffect(() => {
+    if (inCampaign && campaign && state.phase === 'over' && !recordedRef.current) {
+      recordedRef.current = true;
+      const next = recordResult(campaign, state);
+      setCampaign(next);
+      saveCampaign(next);
+    }
+  }, [state.phase, inCampaign, campaign, state]);
 
   const seatName = state.seats.find((s) => s.id === state.activeSeat)?.name ?? '—';
   const isLegionTurn = state.activeSeat === 'legion';
@@ -41,7 +59,34 @@ export const App: React.FC = () => {
   function newGame(mid: string) {
     setMissionId(mid);
     setSelected(null);
+    setInCampaign(false);
+    recordedRef.current = false;
     game.reset(mid, Math.floor(Math.random() * 100000));
+  }
+
+  function startCampaign() {
+    const c = newCampaign();
+    setCampaign(c);
+    saveCampaign(c);
+    playCampaignMission(c);
+  }
+  function playCampaignMission(c: CampaignState) {
+    if (isComplete(c)) return;
+    const m = currentMission(c);
+    setMissionId(m.id);
+    setSelected(null);
+    setInCampaign(true);
+    recordedRef.current = false;
+    game.reset(m.id, Math.floor(Math.random() * 100000), {
+      corporations: CAMPAIGN_CORPS,
+      rank: ranks(c),
+      credits: { ...c.credits },
+    });
+  }
+  function resetCampaign() {
+    clearCampaign();
+    setCampaign(null);
+    setInCampaign(false);
   }
 
   const lastLog = state.log.slice(-12).reverse();
@@ -80,7 +125,7 @@ export const App: React.FC = () => {
             ))}
           </select>
           <p style={{ fontSize: 12, color: '#bbb', margin: '8px 0 4px' }}>{MISSION_LIST.find((m) => m.id === missionId)?.briefing}</p>
-          <p style={{ fontSize: 12, color: '#e8c349', margin: '4px 0' }}><b>Objective:</b> {state.win.kind === 'promotion' ? `Earn ${(state.win as any).points} promotion pts, then escape a trooper.` : state.win.kind === 'eliminate-all' ? 'Eliminate every Dark Legion creature.' : state.win.kind === 'escape' ? `Get ${(state.win as any).count} trooper(s) to an exit.` : 'Survive.'}</p>
+          <p style={{ fontSize: 12, color: '#e8c349', margin: '4px 0' }}><b>Objective:</b> {objectiveText(state)}</p>
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
             <button style={btn} onClick={() => newGame(missionId)}>↻ New Game</button>
             <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -90,9 +135,25 @@ export const App: React.FC = () => {
           </div>
         </Panel>
 
+        <CampaignPanel
+          campaign={campaign}
+          inCampaign={inCampaign}
+          phase={state.phase}
+          onStart={startCampaign}
+          onContinue={(c) => playCampaignMission(c)}
+          onReset={resetCampaign}
+        />
+
         <AssetPanel theme={theme} setTheme={setTheme} />
 
+        {state.phase === 'setup' && <EquipmentPanel state={state} submit={submit} />}
+
         <Panel title={`Round ${state.round}${state.timeLimitRounds < 90 ? ` / ${state.timeLimitRounds}` : ''} — ${state.phase.toUpperCase()}`}>
+          {state.phase === 'play' && state.pendingEvent && (
+            <div style={{ fontSize: 12, color: '#f88', background: '#2a1414', border: '1px solid #5a2020', borderRadius: 6, padding: '6px 8px', marginBottom: 8 }}>
+              ⚠ Event: <b>{EVENTS[state.pendingEvent]?.name}</b> — {EVENTS[state.pendingEvent]?.blurb}
+            </div>
+          )}
           {state.phase === 'setup' && (
             <button style={{ ...btn, background: '#2a6', fontSize: 16, padding: '8px 16px' }} onClick={() => submit({ type: 'start' })}>
               ▶ Start Mission
@@ -112,8 +173,16 @@ export const App: React.FC = () => {
           {state.phase === 'over' && (
             <div style={{ fontSize: 16, color: '#e8c349' }}>
               🏆 Winner: <b>{state.winners?.map((w) => state.seats.find((s) => s.id === w)?.name).join(', ')}</b>
-              <div style={{ marginTop: 8 }}>
+              <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button style={btn} onClick={() => newGame(missionId)}>Play Again</button>
+                {inCampaign && campaign && !isComplete(campaign) && (
+                  <button style={{ ...btn, background: '#2a6' }} onClick={() => playCampaignMission(campaign)}>
+                    ▶ Next Campaign Mission ({currentMission(campaign).name.replace('Mission ', 'M').split(':')[0]})
+                  </button>
+                )}
+                {inCampaign && campaign && isComplete(campaign) && (
+                  <span style={{ fontSize: 13, color: '#7c7' }}>🎖 Campaign complete!</span>
+                )}
               </div>
             </div>
           )}
@@ -160,11 +229,17 @@ export const App: React.FC = () => {
         )}
 
         {promotionRows.length > 0 && (
-          <Panel title="Promotion Points">
+          <Panel title="Teams — Rank · Credits · Promotion">
             {promotionRows.map(([corp, pts]) => (
-              <div key={corp} style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
+              <div key={corp} style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
                 <span>{corp} <span style={{ color: '#777', fontSize: 11 }}>({CORP_SPECIAL[corp]?.split(':')[0]})</span></span>
-                <b style={{ color: '#e8c349' }}>{pts}</b>
+                <span>
+                  <span style={{ color: '#7cf' }} title="Rank">R{state.rank[corp] ?? 1}</span>
+                  {' · '}
+                  <span style={{ color: '#7c7' }} title="Credits">{state.credits[corp] ?? 0}c</span>
+                  {' · '}
+                  <b style={{ color: '#e8c349' }} title="Promotion points this mission">{pts}pp</b>
+                </span>
               </div>
             ))}
           </Panel>
@@ -187,6 +262,113 @@ export const App: React.FC = () => {
         </Panel>
       </div>
     </div>
+  );
+};
+
+function objectiveText(state: GameState): string {
+  const w = state.win;
+  switch (w.kind) {
+    case 'promotion': return `Earn ${w.points} promotion pts${w.escape ? ', then escape a trooper.' : '.'}`;
+    case 'eliminate-all': return 'Eliminate every Dark Legion figure.';
+    case 'escape': return `Get ${w.count} trooper(s) to an exit.`;
+    case 'eliminate-tagged': return `Destroy ${w.label}.`;
+    case 'survive': return `Hold out for all ${state.timeLimitRounds} rounds.`;
+  }
+}
+
+const CampaignPanel: React.FC<{
+  campaign: CampaignState | null;
+  inCampaign: boolean;
+  phase: string;
+  onStart: () => void;
+  onContinue: (c: CampaignState) => void;
+  onReset: () => void;
+}> = ({ campaign, inCampaign, phase, onStart, onContinue, onReset }) => {
+  return (
+    <Panel title="Campaign">
+      {!campaign ? (
+        <div style={{ fontSize: 12, color: '#bbb' }}>
+          Play all 10 missions in sequence. Promotion points, Rank and Credits carry forward —
+          your team grows stronger (extra actions, better gear) as it advances.
+          <button style={{ ...btn, marginTop: 8, background: '#2a6', fontWeight: 700 }} onClick={onStart}>▶ Start Campaign</button>
+        </div>
+      ) : (
+        <div style={{ fontSize: 12 }}>
+          {isComplete(campaign) ? (
+            <div style={{ color: '#7c7' }}>🎖 All 10 missions complete!</div>
+          ) : (
+            <div style={{ color: '#ddd' }}>
+              Next: <b style={{ color: '#e8c349' }}>{currentMission(campaign).name}</b> (mission {campaign.index + 1}/10)
+            </div>
+          )}
+          <div style={{ marginTop: 6 }}>
+            {CAMPAIGN_CORPS.map((c) => (
+              <div key={c} style={{ display: 'flex', justifyContent: 'space-between', color: '#aaa' }}>
+                <span>{c}</span>
+                <span><span style={{ color: '#7cf' }}>R{ranks(campaign)[c]}</span> · <span style={{ color: '#7c7' }}>{campaign.credits[c]}c</span> · <span style={{ color: '#e8c349' }}>{campaign.promotion[c]}pp</span></span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            {!isComplete(campaign) && !(inCampaign && phase !== 'over') && (
+              <button style={{ ...btn, background: '#2a6' }} onClick={() => onContinue(campaign)}>
+                {campaign.index === 0 ? '▶ Play Mission 1' : '▶ Continue'}
+              </button>
+            )}
+            <button style={btn} onClick={onReset}>Reset</button>
+          </div>
+          {inCampaign && phase !== 'over' && (
+            <div style={{ fontSize: 11, color: '#7c7', marginTop: 6 }}>● Campaign mission in progress.</div>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+};
+
+const EquipmentPanel: React.FC<{ state: GameState; submit: (a: Action) => void }> = ({ state, submit }) => {
+  const corps = state.seats.filter((s) => !s.isLegion).map((s) => s.id);
+  const [openCorp, setOpenCorp] = useState(corps[0]);
+  const troopers = state.figures.filter((f) => f.owner === openCorp);
+  const rank = state.rank[openCorp] ?? 1;
+  return (
+    <Panel title="Equip Doomtroopers (setup)">
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
+        {corps.map((c) => (
+          <button key={c} onClick={() => setOpenCorp(c)} style={{ ...btn, fontSize: 11, padding: '3px 7px', outline: openCorp === c ? '2px solid #e8c349' : 'none' }}>
+            {c} ({state.credits[c] ?? 0}c)
+          </button>
+        ))}
+      </div>
+      {troopers.map((t) => (
+        <div key={t.uid} style={{ marginBottom: 8, paddingBottom: 6, borderBottom: '1px solid #2a2a2a' }}>
+          <div style={{ fontSize: 12, color: '#cde', fontWeight: 600 }}>{figureType(t.typeId).name}</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+            {EQUIPMENT_LIST.map((e) => {
+              const has = (t.equipment ?? []).includes(e.id);
+              const locked = e.kind === 'weapon' && rank < e.rank;
+              return (
+                <button
+                  key={e.id}
+                  disabled={locked}
+                  title={`${e.blurb}${e.kind === 'weapon' ? ` (needs Rank ${e.rank})` : ` (${e.cost} credit${e.cost === 1 ? '' : 's'})`}`}
+                  onClick={() => submit({ type: 'equip', corp: openCorp, trooperUid: t.uid, cardId: e.id })}
+                  style={{
+                    ...btn, fontSize: 10, padding: '2px 6px',
+                    opacity: locked ? 0.35 : 1,
+                    background: has ? '#2a5a3a' : '#2d2d2d',
+                    outline: has ? '1px solid #5c5' : 'none',
+                  }}
+                >
+                  {e.name}{e.kind === 'gear' ? ` ·${e.cost}c` : ` ·R${e.rank}`}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <div style={{ fontSize: 11, color: '#888' }}>Weapons are Rank-gated; gear costs Credits. Click again to remove.</div>
+    </Panel>
   );
 };
 
