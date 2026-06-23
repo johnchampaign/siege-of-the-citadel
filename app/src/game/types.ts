@@ -14,6 +14,12 @@ export interface Weapon {
   dice: number;
   color: DiceColor;
   range: number; // squares; close = 1 (adjacent), firearms typically 24
+  /** Area pattern (single-click target derives the affected set):
+   *  'blast' — target + 8 adjacent (adjacent take one hit less)
+   *  'line'  — every figure on the line from attacker through the target
+   *  'swing' — every figure adjacent to the attacker
+   *  'double'— target + nearest other enemy in sight (dice split) */
+  area?: 'blast' | 'line' | 'swing' | 'double';
 }
 
 export type Side = 'legion' | string; // corporation ids or 'legion'
@@ -39,7 +45,8 @@ export interface Figure {
   x: number;                  // global square coords
   y: number;
   woundsTaken: number;        // strength lost
-  actionsLeft: number;
+  actionsLeft: number;        // base actions remaining this turn
+  actionsTaken: number;       // total actions performed this turn (cap 4 for troopers)
   alive: boolean;
   tag?: string;               // objective marker (e.g. 'boss', 'door')
   equipment?: string[];       // equipment card ids carried (troopers)
@@ -147,8 +154,19 @@ export interface GameState {
   escaped: number;            // troopers escaped (for escape missions)
 
   // campaign carry-in: starting rank/credits per corp (set by the campaign layer)
-  rank: Record<string, number>;       // corp id -> rank (1..6), grants extra actions
+  rank: Record<string, number>;       // corp id -> rank (1..6)
   credits: Record<string, number>;    // corp id -> credits
+
+  // shared per-round Extra Action pool per corporation, size from Rank
+  extraPool: Record<string, number>;
+
+  // Doomtrooper Cards: each corp's hand of one-shot cards
+  doomHands: Record<string, string[]>;
+  // Secondary Mission Cards: secret per-corp objective (when 2+ corp teams)
+  secondary: Record<string, string>;
+  secondaryDone: Record<string, boolean>;
+  // transient combat tallies used by some secondary objectives
+  firearmKills: Record<string, number>;
 
   // cards
   usesEvents: boolean;
@@ -174,4 +192,5 @@ export type Action =
   | { type: 'equip'; corp: string; trooperUid: string; cardId: string } // setup: assign equipment
   | { type: 'finish-setup' }                                    // setup: lock in equipment
   | { type: 'resolve-event' }                                   // Legion acknowledges the round's event
+  | { type: 'play-doom-card'; corp: string; cardId: string; targetUid?: string } // play a Doomtrooper Card
   | { type: 'start' };                                          // setup -> play

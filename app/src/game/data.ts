@@ -151,8 +151,8 @@ export function effectiveType(
   let kev = base.kevlariteDice ?? 0;
 
   if (base.isTrooper) {
-    // rank extra actions (Rank 1 = none; capped later)
-    actions += Math.max(0, rank - 1);
+    // Rank no longer adds per-trooper actions — extra actions come from the
+    // shared team pool (see extraActionPoolSize). Base is 2 (+ Imperial/equipment).
     // corp special abilities (full-rules)
     if (base.faction === 'Bauhaus') weapons = weapons.map((w) => (w.kind === 'firearm' ? { ...w, dice: w.dice + 1 } : w));
     if (base.faction === 'Cybertronic') kev += 1;
@@ -178,4 +178,10 @@ export function effectiveType(
   }
 
   return { ...base, weapons, actions, kevlariteDice: kev };
+}
+
+/** Size of a corporation's shared Extra Action pool for the round, by Rank.
+ *  Rank 1 starts with two Extra Actions; the pool is capped at six. */
+export function extraActionPoolSize(rank: number): number {
+  return Math.min(6, rank + 1);
 }

@@ -3,7 +3,7 @@ import { Board } from './Board';
 import { useLocalGame } from './useLocalGame';
 import { MISSION_LIST, FORCE_CARDS } from '../game/missions';
 import { figureType, effectiveType, CORP_SPECIAL } from '../game/data';
-import { EQUIPMENT_LIST, EVENTS } from '../game/cards';
+import { EQUIPMENT_LIST, EVENTS, DOOM_CARDS, SECONDARY_MISSIONS } from '../game/cards';
 import type { Action, GameState } from '../game/types';
 import { useAssets, VASSAL_MODULE_URL, VASSAL_MODULE_PAGE } from './assets';
 import { createOnlineGame } from './api';
@@ -225,10 +225,17 @@ export const App: React.FC = () => {
           )}
         </Panel>
 
+        {state.phase === 'play' && !isLegionTurn && state.activeSeat && (
+          <TurnAidsPanel state={state} corp={state.activeSeat} submit={submit} />
+        )}
+
         {selFig && selType && (
           <Panel title={`Selected: ${selType.name}`}>
             <div style={{ fontSize: 13 }}>
-              {selType.faction} · strength {selType.strength - selFig.woundsTaken}/{selType.strength} · armor {selType.armor} · <b>{selFig.actionsLeft} action(s) left</b>
+              {selType.faction} · strength {selType.strength - selFig.woundsTaken}/{selType.strength} · armor {selType.armor} · <b>{selFig.actionsLeft} action(s)</b>
+              {selFig.owner !== 'legion' && selFig.actionsLeft === 0 && (state.extraPool[selFig.owner] ?? 0) > 0 && (selFig.actionsTaken ?? 0) < 4 && (
+                <span style={{ color: '#e8c349' }}> +pool</span>
+              )}
             </div>
             <div style={{ marginTop: 8 }}>
               <div style={{ fontSize: 12, color: '#aaa' }}>Targets in reach:</div>
@@ -244,10 +251,10 @@ export const App: React.FC = () => {
                       key={i}
                       disabled={!selWeapons.includes(i)}
                       onClick={() => setWeaponIdx(i)}
-                      title={w.kind === 'close' ? 'Close combat — must be adjacent' : `Firearm — range ${w.range}, needs line of sight`}
+                      title={(w.kind === 'close' ? 'Close combat — must be adjacent' : `Firearm — range ${w.range}, needs line of sight`) + (w.area ? ` · area: ${w.area}` : '')}
                       style={{ ...btn, opacity: selWeapons.includes(i) ? 1 : 0.35, outline: weaponIdx === i ? '2px solid #e8c349' : 'none' }}
                     >
-                      {w.kind === 'close' ? '⚔' : '🎯'} {w.name} ({w.dice}{w.color[0]})
+                      {w.kind === 'close' ? '⚔' : '🎯'} {w.name} ({w.dice}{w.color[0]}){w.area ? ' 💥' : ''}
                     </button>
                   ))}
                 </div>
@@ -324,6 +331,60 @@ function objectiveText(state: GameState): string {
     case 'survive': return `Hold out for all ${state.timeLimitRounds} rounds.`;
   }
 }
+
+const TurnAidsPanel: React.FC<{ state: GameState; corp: string; submit: (a: Action) => void }> = ({ state, corp, submit }) => {
+  const pool = state.extraPool[corp] ?? 0;
+  const hand = state.doomHands[corp] ?? [];
+  const secId = state.secondary[corp];
+  const sec = secId && secId !== 'hidden' ? SECONDARY_MISSIONS[secId] : null;
+
+  function play(cardId: string) {
+    const card = DOOM_CARDS[cardId];
+    if (card?.needsTarget) {
+      // auto-target the most-wounded friendly trooper
+      const wounded = state.figures
+        .filter((f) => f.owner === corp && f.alive && f.woundsTaken > 0)
+        .sort((a, b) => b.woundsTaken - a.woundsTaken)[0];
+      if (!wounded) return;
+      submit({ type: 'play-doom-card', corp, cardId, targetUid: wounded.uid });
+    } else {
+      submit({ type: 'play-doom-card', corp, cardId });
+    }
+  }
+
+  return (
+    <Panel title={`${corp} — Turn Resources`}>
+      <div style={{ fontSize: 13, marginBottom: 8 }}>
+        ⚡ Extra Action pool: <b style={{ color: pool > 0 ? '#e8c349' : '#777' }}>{pool}</b>
+        <span style={{ color: '#888', fontSize: 11 }}> (spend to act past 2/turn, max 4/figure)</span>
+      </div>
+      {hand.length > 0 ? (
+        <div>
+          <div style={{ fontSize: 12, color: '#aaa', marginBottom: 4 }}>Doomtrooper Cards (one-shot):</div>
+          {hand.map((cid, i) => {
+            const c = DOOM_CARDS[cid];
+            if (!c) return null;
+            const targetable = !c.needsTarget || state.figures.some((f) => f.owner === corp && f.alive && f.woundsTaken > 0);
+            return (
+              <div key={cid + i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <button style={{ ...btn, fontSize: 11, padding: '3px 7px' }} disabled={!targetable} onClick={() => play(cid)} title={c.blurb}>▶ {c.name}</button>
+                <span style={{ fontSize: 11, color: '#999' }}>{c.blurb}</span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ fontSize: 11, color: '#777' }}>No Doomtrooper Cards left.</div>
+      )}
+      {sec && (
+        <div style={{ marginTop: 8, fontSize: 12, color: '#b9a', borderTop: '1px solid #333', paddingTop: 6 }}>
+          🎯 Secondary Mission: <b>{sec.name}</b> — {sec.blurb}
+          <span style={{ color: '#888' }}> (+{sec.bonusPromotion} PP{sec.bonusCredits ? `, +${sec.bonusCredits}c` : ''})</span>
+        </div>
+      )}
+    </Panel>
+  );
+};
 
 const MultiplayerPanel: React.FC<{ missionId: string }> = ({ missionId }) => {
   const [invites, setInvites] = useState<Record<string, string> | null>(null);
