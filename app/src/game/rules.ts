@@ -118,20 +118,28 @@ export interface AttackOutcome {
 /** Resolve an attack using the attacker/target *effective* types (equipment,
  *  rank and abilities already folded in). `targetWounds` is the target's current
  *  woundsTaken. The caller passes a live Rng (its state is advanced). */
+/** Kevlarite save die colour by the trooper's Rank (better armour at higher rank). */
+export function rankSaveColor(rank: number): DiceColor {
+  if (rank >= 5) return 'black';
+  if (rank >= 3) return 'red';
+  return 'white';
+}
+
 export function resolveAttack(
   rng: Rng,
   at: FigureType,
   tt: FigureType,
   targetWounds: number,
   weaponIdx: number,
+  saveColor: DiceColor = 'white',
 ): AttackOutcome {
   const weapon = at.weapons[weaponIdx];
   const { dice, hits } = rollDice(rng, weapon.dice, weapon.color);
 
   let kevlariteSaves = 0;
   if (tt.isTrooper && tt.kevlariteDice && hits > tt.armor) {
-    // Kevlarite armor: roll save dice (white), each hit absorbs one wound.
-    const save = rollDice(rng, tt.kevlariteDice, 'white');
+    // Kevlarite armor: roll the Rank-colour save die/dice; each hit absorbs one wound.
+    const save = rollDice(rng, tt.kevlariteDice, saveColor);
     kevlariteSaves = save.hits;
   }
 

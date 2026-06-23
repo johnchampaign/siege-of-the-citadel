@@ -35,6 +35,9 @@ export const TROOPERS: Record<string, FigureType> = {
   // Capitol
   bigbob:        trooper('bigbob', '"Big Bob" Watts', 'Capitol', 'bigbob.png'),
   hunter:        trooper('hunter', 'Mitch Hunter', 'Capitol', 'hunter.png'),
+  // Capitol's special ability: they field one extra Doomtrooper. (No third named
+  // figure in the box, so a generic Free Marine rounds out the team.)
+  capitolmarine: trooper('capitolmarine', 'Free Marine', 'Capitol', 'bigbob.png'),
   // Mishima
   yojimbo:       trooper('yojimbo', 'Yojimbo', 'Mishima', 'yojimbo.png'),
   tatsu:         trooper('tatsu', 'Tatsu', 'Mishima', 'tatsu.png'),
@@ -44,7 +47,7 @@ export const CORP_TROOPERS: Record<string, string[]> = {
   Bauhaus: ['valerieduval', 'steiner'],
   Imperial: ['murdoch', 'seangallagher'],
   Cybertronic: ['attila3', 'coralbeach'],
-  Capitol: ['bigbob', 'hunter'],
+  Capitol: ['bigbob', 'hunter', 'capitolmarine'], // 3 figures — Capitol's special ability
   Mishima: ['yojimbo', 'tatsu'],
 };
 
@@ -53,7 +56,7 @@ export const CORP_SPECIAL: Record<string, string> = {
   Bauhaus: 'Crack shots: +1 die on firearm attacks.',
   Imperial: '+1 extra action per turn.',
   Cybertronic: 'Advanced Kevlarite: rolls 2 save dice.',
-  Capitol: 'Superior tacticians: +1 extra action.',
+  Capitol: 'Superior tacticians: field one extra Doomtrooper.',
   Mishima: 'Light armor: move 4 squares per action.',
 };
 
@@ -107,6 +110,16 @@ export const CREATURES: Record<string, FigureType> = {
     weapons: [{ name: 'Crushing Blow', kind: 'close', dice: 3, color: 'black', range: 1 }],
     promotion: 10,
   },
+  // Alakhai, Lord of the Citadel — a Nepharite with 4 actions (Mission 10).
+  alakhai: {
+    id: 'alakhai', name: 'Nepharite Alakhai', faction: 'Dark Legion', token: 'nepharite.png',
+    isTrooper: false, armor: 2, strength: 1, actions: 4,
+    weapons: [
+      { name: 'Dark Blade', kind: 'close', dice: 3, color: 'red', range: 1 },
+      { name: 'Dark Bolt', kind: 'firearm', dice: 2, color: 'red', range: 24 },
+    ],
+    promotion: 7,
+  },
   // --- objective targets (do not act; must be destroyed) ---
   door: {
     id: 'door', name: 'Teleporter Doorway', faction: 'Dark Legion', token: 'nepharite.png',
@@ -143,7 +156,7 @@ export function effectiveType(
     // corp special abilities (full-rules)
     if (base.faction === 'Bauhaus') weapons = weapons.map((w) => (w.kind === 'firearm' ? { ...w, dice: w.dice + 1 } : w));
     if (base.faction === 'Cybertronic') kev += 1;
-    if (base.faction === 'Imperial' || base.faction === 'Capitol') actions += 1;
+    if (base.faction === 'Imperial') actions += 1; // Capitol's perk is an extra figure, not an extra action
 
     for (const id of fig.equipment ?? []) {
       const e = EQUIPMENT[id];
@@ -159,7 +172,7 @@ export function effectiveType(
       if (m.bonusFirearmDice) weapons = weapons.map((w) => (w.kind === 'firearm' ? { ...w, dice: w.dice + m.bonusFirearmDice! } : w));
       if (m.bonusKevlarite) kev += m.bonusKevlarite;
     }
-    actions = Math.min(actions, 6);
+    actions = Math.min(actions, 4); // a Doomtrooper may never take more than 4 actions in a turn
   } else if (frenzy) {
     actions += 1;
   }

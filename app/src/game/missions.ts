@@ -234,7 +234,7 @@ const m10 = build({
   legionEntrances: [{ x: 0, y: 11 }, { x: 11, y: 9 }],
   timeLimitRounds: 8,
   forceCardSectors: [['fc1', 4], ['fc2', 5], ['fc4', 6], ['fc8', 1], ['fc9', 3], ['fc12', 8], ['fc7', 7]],
-  placements: [{ typeId: 'nepharite', x: 12, y: 11, tag: 'boss' }],
+  placements: [{ typeId: 'alakhai', x: 12, y: 11, tag: 'boss' }],
   win: { kind: 'eliminate-tagged', tag: 'boss', label: 'the Nepharite Alakhai' },
   reward: { troopers: 2, legion: 2 }, usesEvents: true,
 });

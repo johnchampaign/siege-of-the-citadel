@@ -5,7 +5,7 @@ import { figureType, effectiveType, CORP_TROOPERS } from './data';
 import { MISSIONS, FORCE_CARDS } from './missions';
 import { EVENTS, EQUIPMENT, buildEventDeck } from './cards';
 import {
-  onBoard, figureAt, canStep, dist, hasLineOfSight, resolveAttack,
+  onBoard, figureAt, canStep, dist, hasLineOfSight, resolveAttack, rankSaveColor,
 } from './rules';
 
 const SCHEMA = 2;
@@ -260,6 +260,19 @@ function totalPromotion(s: GameState): number {
   return Object.values(s.promotion).reduce((a, b) => a + b, 0);
 }
 
+/** Total credit-cost of all gear currently checked out by a corporation's troopers. */
+function teamGearCost(s: GameState, corp: string): number {
+  let sum = 0;
+  for (const f of s.figures) {
+    if (f.owner !== corp) continue;
+    for (const id of f.equipment ?? []) {
+      const e = EQUIPMENT[id];
+      if (e?.kind === 'gear') sum += e.cost;
+    }
+  }
+  return sum;
+}
+
 function setWinner(s: GameState, winners: string[], reason: string) {
   s.phase = 'over';
   s.activeSeat = null;
@@ -442,16 +455,18 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       if (e.kind === 'weapon' && rank < e.rank) return { state, ok: false, reason: `needs rank ${e.rank}` };
       fig.equipment ??= [];
       if (fig.equipment.includes(action.cardId)) {
-        // toggle off — refund gear credits
         fig.equipment = fig.equipment.filter((c) => c !== action.cardId);
-        if (e.kind === 'gear') s.credits[action.corp] += e.cost;
       } else {
         if (e.kind === 'weapon' && fig.equipment.some((c) => EQUIPMENT[c]?.kind === 'weapon'))
           return { state, ok: false, reason: 'one special weapon per trooper' };
-        if (e.kind === 'gear' && (s.credits[action.corp] ?? 0) < e.cost)
-          return { state, ok: false, reason: 'not enough credits' };
+        // Credits are NOT spent on equipment — they only gate how much the team
+        // can check out (total gear cost must stay within the Credit total).
+        if (e.kind === 'gear') {
+          const spent = teamGearCost(s, action.corp);
+          if (spent + e.cost > (s.credits[action.corp] ?? 0))
+            return { state, ok: false, reason: 'exceeds Credit allowance' };
+        }
         fig.equipment.push(action.cardId);
-        if (e.kind === 'gear') s.credits[action.corp] -= e.cost;
       }
       // refresh starting actions to reflect equipment
       fig.actionsLeft = effectiveType(fig, rank).actions;
@@ -539,7 +554,8 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       f.actionsLeft -= 1;
       setSteps(s, f.uid, 0); // attacking ends any in-progress move
       const rng = rngFor(s);
-      const out = resolveAttack(rng, ft, tt, target.woundsTaken, action.weaponIdx);
+      const saveColor = rankSaveColor(s.rank[target.owner] ?? 1);
+      const out = resolveAttack(rng, ft, tt, target.woundsTaken, action.weaponIdx, saveColor);
       s.rngState = rng.serialize();
       s.lastRoll = { dice: out.dice, color: out.color, hits: out.hits, label: out.label };
       s.log.push(out.label);
@@ -553,6 +569,8 @@ export const adapter: GameAdapter<GameState, Action, string> = {
           s.log.push(`${actor} earns ${pp} Promotion Point(s) (total ${s.promotion[f.owner]}).`);
         } else if (target.owner !== 'legion') {
           s.legionKills += 1;
+          // The team loses one Credit for each Doomtrooper eliminated.
+          s.credits[target.owner] = Math.max(0, (s.credits[target.owner] ?? 0) - 1);
         }
       }
       checkWin(s);

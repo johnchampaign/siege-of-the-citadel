@@ -1,6 +1,7 @@
 // Headless engine smoke test. Run: npx tsx src/game/engine.test.ts
 import { RandomAI, Rng } from 'digital-boardgame-framework';
 import { adapter, createInitialState } from './adapter';
+import { effectiveType } from './data';
 import { MISSION_LIST } from './missions';
 import type { GameState, Action } from './types';
 
@@ -72,14 +73,28 @@ async function playOut(seed: number): Promise<GameState> {
     check(`${m.id}: terminates → ${g.winners}`, g.phase === 'over');
   }
 
-  // --- equipment affects effective stats ---
+  // --- equipment gates on credits but does NOT spend them ---
   {
     let g = createInitialState({ missionId: 'eagle', seed: 1, rank: { Bauhaus: 3 }, credits: { Bauhaus: 5 } });
     const t = g.figures.find((f) => f.owner === 'Bauhaus')!;
-    g = adapter.applyAction(g, { type: 'equip', corp: 'Bauhaus', trooperUid: t.uid, cardId: 'helmet' }, 'legion');
+    g = adapter.applyAction(g, { type: 'equip', corp: 'Bauhaus', trooperUid: t.uid, cardId: 'helmet' }, 'legion'); // cost 3
     const eq = g.figures.find((f) => f.uid === t.uid)!;
     check('equip: helmet recorded', (eq.equipment ?? []).includes('helmet'));
-    check('equip: credits spent', g.credits.Bauhaus === 2);
+    check('equip: credits NOT spent', g.credits.Bauhaus === 5);
+    // helmet(3)+powerarm(2)=5 OK; a 3rd gear piece would exceed the 5-credit allowance
+    const t2 = g.figures.filter((f) => f.owner === 'Bauhaus')[1];
+    g = adapter.applyAction(g, { type: 'equip', corp: 'Bauhaus', trooperUid: t2.uid, cardId: 'powerarm' }, 'legion'); // +2 = 5
+    const r = adapter.tryApplyAction!(g, { type: 'equip', corp: 'Bauhaus', trooperUid: t.uid, cardId: 'lasersight' }, 'legion'); // +1 -> 6 > 5
+    check('equip: gear gated by credit allowance', !r.ok);
+  }
+
+  // --- Capitol fields 3 Doomtroopers; per-trooper action cap is 4 ---
+  {
+    const g = createInitialState({ missionId: 'eagle', seed: 1, rank: { Capitol: 6 } });
+    const cap = g.figures.filter((f) => f.owner === 'Capitol');
+    check('Capitol has 3 figures', cap.length === 3);
+    // Rank 6 (+5) caps a trooper at 4 actions, no Imperial/Capitol action bonus
+    check('action cap is 4', effectiveType(cap[0], 6).actions === 4);
   }
 
   // --- combat sanity: a Legionnaire (armor 0) dies to enough hits ---
