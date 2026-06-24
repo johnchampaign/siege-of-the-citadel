@@ -20,6 +20,15 @@ export const App: React.FC = () => {
   const [selected, setSelected] = useState<string | null>(null);
   const [weaponIdx, setWeaponIdx] = useState(0);
   const assets = useAssets();
+  // combat-result modal: shown after the player's own attacks
+  const [resultModal, setResultModal] = useState<GameState['lastRoll'] | null>(null);
+  const pendingResultRef = React.useRef(false);
+  useEffect(() => {
+    if (pendingResultRef.current) {
+      pendingResultRef.current = false;
+      if (state.lastRoll) setResultModal(state.lastRoll);
+    }
+  }, [state]);
   const [theme, setTheme] = useState<'designed' | 'art'>('designed');
   const useArt = theme === 'art' && assets.loaded;
   const [campaign, setCampaign] = useState<CampaignState | null>(() => loadCampaign());
@@ -79,6 +88,7 @@ export const App: React.FC = () => {
   }
   function doAttack(targetUid: string, idx: number) {
     if (!selected) return;
+    pendingResultRef.current = true; // capture the outcome for the result modal
     submit({ type: 'attack', uid: selected, targetUid, weaponIdx: idx });
   }
   function newGame(mid: string) {
@@ -317,6 +327,8 @@ export const App: React.FC = () => {
 
         <ReportPanel state={state} mode="local" />
       </div>
+
+      {resultModal && <CombatResultModal roll={resultModal} onClose={() => setResultModal(null)} />}
     </div>
   );
 };
@@ -331,6 +343,63 @@ function objectiveText(state: GameState): string {
     case 'survive': return `Hold out for all ${state.timeLimitRounds} rounds.`;
   }
 }
+
+const CombatResultModal: React.FC<{ roll: NonNullable<GameState['lastRoll']>; onClose: () => void }> = ({ roll, onClose }) => {
+  const thr = roll.color === 'white' ? 2 : roll.color === 'red' ? 3 : 4;
+  // Build a plain-English explanation of what happened.
+  const lines: { text: string; tone?: 'good' | 'bad' | 'plain' }[] = [];
+  if (roll.area) {
+    lines.push({ text: `Area attack (${roll.area}) — rolled ${roll.hits} hit${roll.hits === 1 ? '' : 's'}.` });
+    lines.push({ text: 'Each figure caught in the area is checked against its own armor — see the Battle Log for the full breakdown.', tone: 'plain' });
+  } else {
+    lines.push({ text: `${roll.attackerName ?? 'Your figure'} attacked ${roll.targetName ?? 'the target'}${roll.weapon ? ` with ${roll.weapon}` : ''}.` });
+    lines.push({ text: `Rolled ${roll.hits} hit${roll.hits === 1 ? '' : 's'} (a die "hits" on ${roll.color === 'white' ? '1–2' : roll.color === 'red' ? '1–3' : '1–4'}).` });
+    if ((roll.armor ?? 0) > 0) {
+      lines.push({ text: `${roll.targetName}'s armor (Factor ${roll.armor}) soaked ${roll.armor} hit${roll.armor === 1 ? '' : 's'}.`, tone: 'plain' });
+    }
+    if ((roll.saves ?? 0) > 0) {
+      lines.push({ text: `Kevlarite armor absorbed ${roll.saves} more.`, tone: 'plain' });
+    }
+    if (roll.killed) {
+      lines.push({ text: `💀 ${roll.targetName} was ELIMINATED!`, tone: 'good' });
+    } else if ((roll.damage ?? 0) > 0) {
+      lines.push({ text: `${roll.damage} wound${roll.damage === 1 ? '' : 's'} got through.`, tone: 'good' });
+    } else {
+      lines.push({ text: `No damage got through — you need MORE hits than the target's armor to wound it.`, tone: 'bad' });
+    }
+  }
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+    >
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#1c1c20', border: '2px solid #4a4a55', borderRadius: 12, padding: 22, maxWidth: 420, boxShadow: '0 10px 40px #000' }}>
+        <div style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: 2, color: '#e8c349', marginBottom: 12 }}>Combat Result</div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          {roll.dice.map((d, i) => {
+            const hit = d <= thr;
+            const bg = roll.color === 'white' ? '#eee' : roll.color === 'red' ? '#c33' : '#222';
+            const fg = roll.color === 'white' ? '#222' : '#fff';
+            return (
+              <div key={i} style={{ width: 40, height: 40, borderRadius: 7, background: bg, color: fg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 18, border: hit ? '3px solid #6f6' : '3px solid #555', boxShadow: hit ? '0 0 8px #6f6' : 'none' }}>
+                {d}
+              </div>
+            );
+          })}
+          <div style={{ display: 'flex', alignItems: 'center', marginLeft: 6, color: '#e8c349', fontWeight: 700 }}>
+            {roll.hits} hit{roll.hits === 1 ? '' : 's'}
+          </div>
+        </div>
+        <div style={{ fontSize: 14, lineHeight: 1.6 }}>
+          {lines.map((l, i) => (
+            <div key={i} style={{ color: l.tone === 'good' ? '#7d7' : l.tone === 'bad' ? '#f88' : '#cdd', marginBottom: 3 }}>{l.text}</div>
+          ))}
+        </div>
+        <button style={{ ...btn, marginTop: 16, background: '#2a6', padding: '8px 18px', fontSize: 14 }} onClick={onClose}>Got it</button>
+      </div>
+    </div>
+  );
+};
 
 const PlayCount: React.FC = () => {
   const [count, setCount] = useState<number | null>(null);

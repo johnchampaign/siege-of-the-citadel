@@ -674,7 +674,11 @@ function resolveCombat(s: GameState, attacker: Figure, target: Figure, ft: Figur
   if (!w.area) {
     const tt = effectiveType(target, s.rank[target.owner] ?? 1, (s as any)._frenzy);
     const out = resolveAttack(rng, ft, tt, target.woundsTaken, weaponIdx, rankSaveColor(s.rank[target.owner] ?? 1));
-    s.lastRoll = { dice: out.dice, color: out.color, hits: out.hits, label: out.label };
+    s.lastRoll = {
+      dice: out.dice, color: out.color, hits: out.hits, label: out.label,
+      attackerOwner: attacker.owner, attackerName: ft.name, targetName: tt.name, weapon: w.name,
+      armor: tt.armor, saves: out.kevlariteSaves, damage: out.damage, killed: out.killed,
+    };
     s.log.push(out.label);
     target.woundsTaken += out.damage;
     if (out.killed) {
@@ -701,8 +705,9 @@ function resolveCombat(s: GameState, attacker: Figure, target: Figure, ft: Figur
         && dist(attacker.x, attacker.y, g.x, g.y) <= w.range && hasLineOfSight(s, attacker.x, attacker.y, g.x, g.y))
       .sort((a, b) => dist(target.x, target.y, a.x, a.y) - dist(target.x, target.y, b.x, b.y))[0];
     const r1 = rollDice(rng, w.dice, w.color);
-    s.lastRoll = { dice: r1.dice, color: w.color, hits: r1.hits, label: `${ft.name} fires ${w.name}: ${r1.hits} hit(s)` };
-    s.log.push(s.lastRoll.label);
+    s.lastRoll = { dice: r1.dice, color: w.color, hits: r1.hits, label: `${ft.name} fires ${w.name}: ${r1.hits} hit(s)`,
+      attackerOwner: attacker.owner, attackerName: ft.name, weapon: w.name, area: w.area };
+    s.log.push(s.lastRoll!.label);
     applyHits(s, attacker, target, r1.hits, rng, fromFirearm);
     if (second) {
       const r2 = rollDice(rng, w.dice, w.color);
@@ -715,8 +720,9 @@ function resolveCombat(s: GameState, attacker: Figure, target: Figure, ft: Figur
 
   // swing / line / blast: roll once, fan the hits across the affected squares.
   const r = rollDice(rng, w.dice, w.color);
-  s.lastRoll = { dice: r.dice, color: w.color, hits: r.hits, label: `${ft.name} unleashes ${w.name}: ${r.hits} hit(s)` };
-  s.log.push(s.lastRoll.label);
+  s.lastRoll = { dice: r.dice, color: w.color, hits: r.hits, label: `${ft.name} unleashes ${w.name}: ${r.hits} hit(s)`,
+    attackerOwner: attacker.owner, attackerName: ft.name, weapon: w.name, area: w.area };
+  s.log.push(s.lastRoll!.label);
 
   let affected: { fig: Figure; hits: number }[] = [];
   if (w.area === 'swing') {

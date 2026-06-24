@@ -180,7 +180,22 @@ export interface GameState {
   rngState: number;
   log: string[];
   // transient: result of the most recent dice roll, for UI display
-  lastRoll?: { dice: number[]; color: DiceColor; hits: number; label: string };
+  lastRoll?: {
+    dice: number[];
+    color: DiceColor;
+    hits: number;
+    label: string;
+    // structured detail for the result modal (single-target attacks)
+    attackerOwner?: string;
+    attackerName?: string;
+    targetName?: string;
+    weapon?: string;
+    armor?: number;
+    saves?: number;
+    damage?: number;
+    killed?: boolean;
+    area?: string;
+  };
 }
 
 // ---- Actions ----
