@@ -74,6 +74,11 @@ export function dist(ax: number, ay: number, bx: number, by: number): number {
  *  Adjacent squares always have LOS. */
 export function hasLineOfSight(state: GameState, ax: number, ay: number, bx: number, by: number): boolean {
   if (ax === bx && ay === by) return true;
+  // Canonicalize endpoint order so LOS is symmetric: the sampling/rounding below
+  // is direction-dependent, so without this hasLineOfSight(a,b) could disagree
+  // with hasLineOfSight(b,a) — letting one figure shoot another that can't shoot
+  // back. Both endpoints are excluded from blocking regardless of order.
+  if (ax > bx || (ax === bx && ay > by)) { [ax, bx] = [bx, ax]; [ay, by] = [by, ay]; }
   // Sample along the segment between centers; step through grid edges.
   const steps = Math.max(Math.abs(bx - ax), Math.abs(by - ay)) * 4;
   let px = ax, py = ay;

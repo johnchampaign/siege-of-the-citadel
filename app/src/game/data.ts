@@ -79,7 +79,10 @@ export const CREATURES: Record<string, FigureType> = {
   },
   centurion: {
     id: 'centurion', name: 'Centurion', faction: 'Dark Legion', token: 'centurion.png',
-    isTrooper: false, armor: 2, strength: 1, actions: 2,
+    // armor 1 (was 2): with base 3 white dice, armor 2 is only ~3.8%/attack to
+    // wound — unfair vs the no-equipment training creatures. 1 keeps them tough
+    // (~26%/attack) but killable.
+    isTrooper: false, armor: 1, strength: 1, actions: 2,
     weapons: [
       { name: 'Close', kind: 'close', dice: 2, color: 'white', range: 1 },
       { name: 'Firearm', kind: 'firearm', dice: 2, color: 'white', range: 24 },
@@ -106,7 +109,9 @@ export const CREATURES: Record<string, FigureType> = {
   },
   ezoghoul: {
     id: 'ezoghoul', name: 'Ezoghoul', faction: 'Dark Legion', token: 'ezoghoul.png',
-    isTrooper: false, armor: 3, strength: 1, actions: 3,
+    // armor 2 (was 3): with only 3 base dice, armor 3 needs 4 hits = impossible,
+    // making Mission 9 ("eliminate the Ezoghoul") unwinnable with base weapons.
+    isTrooper: false, armor: 2, strength: 1, actions: 3,
     weapons: [{ name: 'Crushing Blow', kind: 'close', dice: 3, color: 'black', range: 1 }],
     promotion: 10,
   },
