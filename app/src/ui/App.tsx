@@ -312,7 +312,7 @@ export const App: React.FC = () => {
         <Panel title="Force Cards">
           {state.forceCards.map((fc) => (
             <div key={fc.cardId} style={{ fontSize: 12, color: fc.revealed ? '#f88' : '#888' }}>
-              Sector {fc.sectorId}: {fc.revealed ? FORCE_CARDS[fc.cardId].spawn.map((c) => figureType(c).name).join(', ') : '🂠 face down'}
+              Sector {fc.sectorId}: {fc.revealed ? (FORCE_CARDS[fc.cardId].spawn.length ? FORCE_CARDS[fc.cardId].spawn.map((c) => figureType(c).name).join(', ') : `${FORCE_CARDS[fc.cardId].name} (decoy — no creatures)`) : '🂠 face down'}
             </div>
           ))}
         </Panel>

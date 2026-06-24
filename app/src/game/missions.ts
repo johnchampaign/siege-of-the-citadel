@@ -8,28 +8,25 @@ function sector(id: number, mapImage: string, col: number, row: number): SectorP
   return { id, mapImage, ox: col * SIZE, oy: row * SIZE, size: SIZE };
 }
 
-// Force card definitions: revealing one deploys its creatures into the sector.
+// Force card definitions — transcribed from the actual game's Force Cards (the
+// f1..f12 card faces). Revealing one deploys its creatures into the sector.
+//  1-4 Legionnaire Cohort: 3 Legionnaires   5 Necromutant Cohort: 1 Necro + 1 Leg
+//  6 Necromutant Cohort: 2 Necromutants     7 Centurion Cohort: 1 Cent + 1 Necro + 1 Leg
+//  8-9 Razide Cohort: 1 Razide + 2 Legs     10 Nepharite Overlord: 1 Nepharite
+//  11 Ezoghoul Beastmaster: 1 Ezoghoul      12 Diversion Cohort: empty (the decoy/Key card)
 export const FORCE_CARDS: Record<string, ForceCardDef> = {
-  fc1: { id: 'fc1', name: 'Force 1', spawn: ['legionnaire', 'legionnaire', 'legionnaire'] },
-  fc2: { id: 'fc2', name: 'Force 2', spawn: ['legionnaire', 'necromutant'] },
-  fc3: { id: 'fc3', name: 'Force 3', spawn: ['necromutant', 'necromutant'] },
-  fc4: { id: 'fc4', name: 'Force 4', spawn: ['legionnaire', 'legionnaire', 'centurion'] },
-  fc5: { id: 'fc5', name: 'Force 5', spawn: ['centurion', 'necromutant'] },
-  fc6: { id: 'fc6', name: 'Force 6', spawn: ['razide'] },
-  fc7: { id: 'fc7', name: 'Force 7', spawn: ['necromutant', 'centurion', 'legionnaire'] },
-  fc8: { id: 'fc8', name: 'Force 8', spawn: ['legionnaire', 'razide'] },
-  fc9: { id: 'fc9', name: 'Force 9', spawn: ['centurion', 'centurion'] },
-  fc10: { id: 'fc10', name: 'Force 10', spawn: ['razide', 'necromutant'] },
-  fc11: { id: 'fc11', name: 'Force 11', spawn: ['legionnaire', 'legionnaire', 'necromutant'] },
-  fc12: { id: 'fc12', name: 'Force 12', spawn: ['centurion', 'razide'] },
-  // Training-only cards: only Legionnaires (armor 0) and Necromutants (armor 1),
-  // which base 3-white-dice weapons can actually beat. The training has no
-  // equipment, so it must not deploy armored elites.
-  tA: { id: 'tA', name: 'Force A', spawn: ['legionnaire', 'legionnaire'] },
-  tB: { id: 'tB', name: 'Force B', spawn: ['legionnaire', 'necromutant'] },
-  tC: { id: 'tC', name: 'Force C', spawn: ['legionnaire', 'legionnaire', 'legionnaire'] },
-  tD: { id: 'tD', name: 'Force D', spawn: ['necromutant', 'legionnaire'] },
-  tE: { id: 'tE', name: 'Force E', spawn: ['legionnaire', 'legionnaire'] },
+  fc1: { id: 'fc1', name: 'Legionnaire Cohort', spawn: ['legionnaire', 'legionnaire', 'legionnaire'] },
+  fc2: { id: 'fc2', name: 'Legionnaire Cohort', spawn: ['legionnaire', 'legionnaire', 'legionnaire'] },
+  fc3: { id: 'fc3', name: 'Legionnaire Cohort', spawn: ['legionnaire', 'legionnaire', 'legionnaire'] },
+  fc4: { id: 'fc4', name: 'Legionnaire Cohort', spawn: ['legionnaire', 'legionnaire', 'legionnaire'] },
+  fc5: { id: 'fc5', name: 'Necromutant Cohort', spawn: ['necromutant', 'legionnaire'] },
+  fc6: { id: 'fc6', name: 'Necromutant Cohort', spawn: ['necromutant', 'necromutant'] },
+  fc7: { id: 'fc7', name: 'Centurion Cohort', spawn: ['centurion', 'necromutant', 'legionnaire'] },
+  fc8: { id: 'fc8', name: 'Razide Cohort', spawn: ['razide', 'legionnaire', 'legionnaire'] },
+  fc9: { id: 'fc9', name: 'Razide Cohort', spawn: ['razide', 'legionnaire', 'legionnaire'] },
+  fc10: { id: 'fc10', name: 'Nepharite Overlord', spawn: ['nepharite'] },
+  fc11: { id: 'fc11', name: 'Ezoghoul Beastmaster', spawn: ['ezoghoul'] },
+  fc12: { id: 'fc12', name: 'Diversion Cohort', spawn: [] }, // the decoy / Key card — no creatures
 };
 
 const ALL_CORPS = ['Bauhaus', 'Imperial', 'Capitol'];
@@ -94,7 +91,7 @@ const trial = build({
   trooperEntrances: [{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 9, y: 0 }, { x: 10, y: 0 }],
   legionEntrances: [{ x: 14, y: 8 }, { x: 17, y: 8 }, { x: 15, y: 9 }],
   timeLimitRounds: 99,
-  forceCardSectors: [['tC', 1], ['tB', 2], ['tA', 4], ['tD', 5], ['tE', 3]],
+  forceCardSectors: [['fc1', 1], ['fc2', 2], ['fc4', 4], ['fc5', 5], ['fc7', 3]], // RAW: cards 1,2,4,5,7
   corporations: ['Bauhaus', 'Imperial'],
   win: { kind: 'eliminate-all' },
 });
@@ -196,7 +193,7 @@ const m7 = build({
   legionEntrances: [{ x: 0, y: 3 }, { x: 0, y: 4 }],
   exits: [{ x: 31, y: 3 }, { x: 31, y: 4 }, { x: 31, y: 5 }],
   timeLimitRounds: 6,
-  forceCardSectors: [['fc1', 6], ['fc2', 1], ['fc4', 7], ['fc8', 8], ['fc9', 5], ['fc10', 2]],
+  forceCardSectors: [['fc1', 6], ['fc2', 1], ['fc4', 7], ['fc8', 8], ['fc9', 5], ['fc6', 2]],
   win: { kind: 'escape', count: 2 }, reward: { troopers: 3, legion: 2 }, usesEvents: true,
 });
 
@@ -210,7 +207,7 @@ const m8 = build({
   trooperEntrances: [{ x: 16, y: 0 }, { x: 17, y: 0 }, { x: 0, y: 8 }, { x: 0, y: 9 }],
   legionEntrances: [{ x: 18, y: 9 }, { x: 21, y: 9 }],
   timeLimitRounds: 5,
-  forceCardSectors: [['fc1', 1], ['fc4', 3], ['fc9', 8], ['fc8', 5], ['fc12', 6], ['fc7', 4], ['fc10', 7]],
+  forceCardSectors: [['fc1', 1], ['fc4', 3], ['fc9', 8], ['fc8', 5], ['fc12', 6], ['fc7', 4], ['fc6', 7]],
   placements: [{ typeId: 'door', x: 17, y: 3, tag: 'door' }, { typeId: 'door', x: 12, y: 11, tag: 'door' }],
   win: { kind: 'eliminate-tagged', tag: 'door', label: 'both Teleporter Doorways' },
   reward: { troopers: 3, legion: 1 }, usesEvents: true,
