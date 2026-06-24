@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RandomAI, Rng } from 'digital-boardgame-framework';
+import { RandomAI, Rng, recordPlay } from 'digital-boardgame-framework';
 import { adapter, createInitialState } from '../game/adapter';
+import { HUB_SLUG } from './api';
 import type { GameState, Action } from '../game/types';
 
 export interface ResetOpts {
@@ -27,6 +28,17 @@ export function useLocalGame(initialMission: string): LocalGame {
   const [legionAI, setLegionAI] = useState(true);
   const aiRng = useRef(Rng.fromState(98765));
   const ai = useRef(new RandomAI<GameState, Action, string>());
+
+  // Best-effort play counter: record one local game start when the mission
+  // transitions setup -> play (covers New Game and each campaign mission).
+  // The ref guard keeps it to exactly once per start (and dodges StrictMode).
+  const prevPhase = useRef(state.phase);
+  useEffect(() => {
+    if (prevPhase.current === 'setup' && state.phase === 'play') {
+      recordPlay(HUB_SLUG, legionAI ? 'ai' : 'hotseat'); // never throws / blocks
+    }
+    prevPhase.current = state.phase;
+  }, [state.phase, legionAI]);
 
   const submit = useCallback((a: Action) => {
     setState((prev) => {

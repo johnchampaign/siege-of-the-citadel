@@ -28,6 +28,8 @@ function makeServer(env: Env, origin: string) {
     adapter,
     codec: jsonCodec<GameState>(),
     store: new KVStore(env.SIEGE_KV),
+    // Best-effort play counter: createGame fires an 'online' beacon to the hub.
+    playBeacon: { appId: 'siege-of-the-citadel' },
     gameUrl: (gameId, token) => `${site}/?game=${gameId}&token=${token}`,
   });
 }

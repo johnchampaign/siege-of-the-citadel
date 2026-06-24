@@ -6,7 +6,7 @@ import { figureType, effectiveType, CORP_SPECIAL } from '../game/data';
 import { EQUIPMENT_LIST, EVENTS, DOOM_CARDS, SECONDARY_MISSIONS } from '../game/cards';
 import type { Action, GameState } from '../game/types';
 import { useAssets, VASSAL_MODULE_URL, VASSAL_MODULE_PAGE } from './assets';
-import { createOnlineGame } from './api';
+import { createOnlineGame, fetchPlayCount } from './api';
 import { ReportPanel } from './ReportPanel';
 import {
   type CampaignState, loadCampaign, saveCampaign, newCampaign, clearCampaign,
@@ -123,7 +123,7 @@ export const App: React.FC = () => {
         <h1 style={{ margin: '0 0 4px', fontSize: 22, color: '#e8c349', letterSpacing: 1 }}>
           MUTANT CHRONICLES
         </h1>
-        <div style={{ margin: '0 0 12px', color: '#a55', fontSize: 13, letterSpacing: 2 }}>SIEGE OF THE CITADEL</div>
+        <div style={{ margin: '0 0 12px', color: '#a55', fontSize: 13, letterSpacing: 2 }}>SIEGE OF THE CITADEL <PlayCount /></div>
         <div style={{ overflow: 'auto', maxHeight: '82vh', border: '1px solid #333' }}>
         <Board
           state={state}
@@ -331,6 +331,13 @@ function objectiveText(state: GameState): string {
     case 'survive': return `Hold out for all ${state.timeLimitRounds} rounds.`;
   }
 }
+
+const PlayCount: React.FC = () => {
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => { fetchPlayCount().then(setCount); }, []);
+  if (count == null) return null;
+  return <span style={{ color: '#777', fontSize: 11, letterSpacing: 0 }}>· {count.toLocaleString()} games played</span>;
+};
 
 const TurnAidsPanel: React.FC<{ state: GameState; corp: string; submit: (a: Action) => void }> = ({ state, corp, submit }) => {
   const pool = state.extraPool[corp] ?? 0;

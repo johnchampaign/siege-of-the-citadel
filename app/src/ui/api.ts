@@ -7,6 +7,22 @@ export const API_BASE =
   (import.meta as any).env?.VITE_API_URL ||
   'https://siege-of-the-citadel-api.johnchampaign.workers.dev';
 
+/** This game's slug on the shared games hub (play counter). */
+export const HUB_SLUG = 'siege-of-the-citadel';
+const HUB_BASE = 'https://games-hub-5vo.pages.dev';
+
+/** Best-effort read of the games-played counter; null if unavailable. */
+export async function fetchPlayCount(): Promise<number | null> {
+  try {
+    const r = await fetch(`${HUB_BASE}/stats?game=${HUB_SLUG}`);
+    if (!r.ok) return null;
+    const data = await r.json();
+    return typeof data?.count === 'number' ? data.count : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface OnlineParams { gameId: string; token: string; }
 
 /** Read ?game=&token= from the current URL (the shareable invite link). */
