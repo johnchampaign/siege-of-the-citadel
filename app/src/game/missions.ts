@@ -22,6 +22,14 @@ export const FORCE_CARDS: Record<string, ForceCardDef> = {
   fc10: { id: 'fc10', name: 'Force 10', spawn: ['razide', 'necromutant'] },
   fc11: { id: 'fc11', name: 'Force 11', spawn: ['legionnaire', 'legionnaire', 'necromutant'] },
   fc12: { id: 'fc12', name: 'Force 12', spawn: ['centurion', 'razide'] },
+  // Training-only cards: only Legionnaires (armor 0) and Necromutants (armor 1),
+  // which base 3-white-dice weapons can actually beat. The training has no
+  // equipment, so it must not deploy armored elites.
+  tA: { id: 'tA', name: 'Force A', spawn: ['legionnaire', 'legionnaire'] },
+  tB: { id: 'tB', name: 'Force B', spawn: ['legionnaire', 'necromutant'] },
+  tC: { id: 'tC', name: 'Force C', spawn: ['legionnaire', 'legionnaire', 'legionnaire'] },
+  tD: { id: 'tD', name: 'Force D', spawn: ['necromutant', 'legionnaire'] },
+  tE: { id: 'tE', name: 'Force E', spawn: ['legionnaire', 'legionnaire'] },
 };
 
 const ALL_CORPS = ['Bauhaus', 'Imperial', 'Capitol'];
@@ -86,7 +94,7 @@ const trial = build({
   trooperEntrances: [{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 9, y: 0 }, { x: 10, y: 0 }],
   legionEntrances: [{ x: 14, y: 8 }, { x: 17, y: 8 }, { x: 15, y: 9 }],
   timeLimitRounds: 99,
-  forceCardSectors: [['fc1', 1], ['fc2', 2], ['fc4', 4], ['fc5', 5], ['fc7', 3]],
+  forceCardSectors: [['tC', 1], ['tB', 2], ['tA', 4], ['tD', 5], ['tE', 3]],
   corporations: ['Bauhaus', 'Imperial'],
   win: { kind: 'eliminate-all' },
 });
