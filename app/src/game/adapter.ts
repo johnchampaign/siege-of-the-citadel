@@ -5,7 +5,7 @@ import { figureType, effectiveType, extraActionPoolSize, CORP_TROOPERS } from '.
 import { MISSIONS, FORCE_CARDS } from './missions';
 import { EVENTS, EQUIPMENT, DOOM_CARDS, SECONDARY_MISSIONS, buildEventDeck, dealDoomHands, assignSecondaries } from './cards';
 import {
-  onBoard, figureAt, canStep, dist, hasLineOfSight, resolveAttack, rankSaveColor, rollDice,
+  onBoard, figureAt, canStep, dist, hasLineOfSight, resolveAttack, rankSaveColor, rollDice, inCitadel,
 } from './rules';
 import type { Weapon, FigureType } from './types';
 
@@ -166,7 +166,7 @@ function maybeRevealForceCard(s: GameState, x: number, y: number) {
   const spots: { x: number; y: number }[] = [];
   for (let yy = sec.oy; yy < sec.oy + sec.size; yy++) {
     for (let xx = sec.ox; xx < sec.ox + sec.size; xx++) {
-      if (!figureAt(s, xx, yy) && !(xx === x && yy === y)) spots.push({ x: xx, y: yy });
+      if (!figureAt(s, xx, yy) && !inCitadel(s, xx, yy) && !(xx === x && yy === y)) spots.push({ x: xx, y: yy });
     }
   }
   // deterministic spread: prefer squares farthest from the trooper
@@ -242,11 +242,11 @@ function spawnAtLegionEntrance(s: GameState, creatures: string[]) {
 
 function findOpenNearEntrances(s: GameState): { x: number; y: number } | null {
   for (const e of s.legionEntrances) {
-    if (onBoard(s, e.x, e.y) && !figureAt(s, e.x, e.y)) return { x: e.x, y: e.y };
+    if (onBoard(s, e.x, e.y) && !figureAt(s, e.x, e.y) && !inCitadel(s, e.x, e.y)) return { x: e.x, y: e.y };
     for (let dx = -1; dx <= 1; dx++)
       for (let dy = -1; dy <= 1; dy++) {
         const x = e.x + dx, y = e.y + dy;
-        if (onBoard(s, x, y) && !figureAt(s, x, y)) return { x, y };
+        if (onBoard(s, x, y) && !figureAt(s, x, y) && !inCitadel(s, x, y)) return { x, y };
       }
   }
   return null;

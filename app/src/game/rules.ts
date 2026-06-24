@@ -16,6 +16,12 @@ export function figureAt(state: GameState, x: number, y: number): Figure | undef
   return state.figures.find((f) => f.alive && f.x === x && f.y === y);
 }
 
+/** Is (x,y) inside the solid Citadel construction? It blocks movement and LOS. */
+export function inCitadel(state: GameState, x: number, y: number): boolean {
+  const c = state.citadel;
+  return !!c && x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h;
+}
+
 const DIRS: Record<string, [number, number]> = {
   N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0],
 };
@@ -41,6 +47,7 @@ export function canStep(state: GameState, x: number, y: number, tx: number, ty: 
   const dx = tx - x, dy = ty - y;
   if (Math.abs(dx) > 1 || Math.abs(dy) > 1 || (dx === 0 && dy === 0)) return false;
   if (!onBoard(state, tx, ty)) return false;
+  if (inCitadel(state, tx, ty)) return false; // the Citadel is solid
   if (figureAt(state, tx, ty)) return false;
 
   if (dx !== 0 && dy === 0) {
@@ -81,8 +88,9 @@ export function hasLineOfSight(state: GameState, ax: number, ay: number, bx: num
     const ddx = gx - px, ddy = gy - py;
     if (ddx !== 0 && wallBetween(state.walls, px, py, ddx > 0 ? 'E' : 'W')) return false;
     if (ddy !== 0 && wallBetween(state.walls, px, py, ddy > 0 ? 'S' : 'N')) return false;
-    // intervening figure (not the target, not the attacker) blocks
+    // intervening figure or the solid Citadel blocks the line of sight
     if (!(gx === bx && gy === by) && !(gx === ax && gy === ay)) {
+      if (inCitadel(state, gx, gy)) return false;
       const f = figureAt(state, gx, gy);
       if (f) return false;
     }
