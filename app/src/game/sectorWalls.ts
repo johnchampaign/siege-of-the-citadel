@@ -1,75 +1,42 @@
 import type { Wall, SectorPlacement } from './types';
 
 // ---------------------------------------------------------------------------
-// Interior walls per sector (8x8 local grid). These are designed room/corridor
-// layouts aligned to the play grid — faithful in spirit to the original boards'
-// chambers without pixel-tracing the (copyrighted) artwork. Walls travel with a
-// sector wherever a mission places it.
+// Interior + border walls for each tile, traced off the actual tile art with
+// the in-app Wall Editor. Stored verbatim in the editor's export format and
+// parsed here, so what's encoded is exactly what was marked.
 //
-// Helpers build runs of wall edges with deliberate gaps left as doorways.
+// Editor edge format (8x8 cells, 0..7):
+//   V,i,j = vertical wall on the line left of column i, at row j   (i: 0..8)
+//   H,i,j = horizontal wall on the line above row j, at column i   (j: 0..8)
+// i/j of 0 or 8 are the tile's outer border edges.
 // ---------------------------------------------------------------------------
 
-type LW = Wall;
-
-/** Vertical wall on the West edge of column `x`, rows y0..y1 inclusive (skip `gap` rows). */
-function vRun(x: number, y0: number, y1: number, gaps: number[] = []): LW[] {
-  const out: LW[] = [];
-  for (let y = y0; y <= y1; y++) if (!gaps.includes(y)) out.push({ x, y, dir: 'W' });
-  return out;
-}
-/** Horizontal wall on the North edge of row `y`, cols x0..x1 inclusive (skip `gap` cols). */
-function hRun(y: number, x0: number, x1: number, gaps: number[] = []): LW[] {
-  const out: LW[] = [];
-  for (let x = x0; x <= x1; x++) if (!gaps.includes(x)) out.push({ x, y, dir: 'N' });
-  return out;
-}
-
-// Local wall layouts keyed by sector id (1..9). Each leaves doorways so every
-// square stays reachable.
-const LOCAL: Record<number, LW[]> = {
-  1: [ // a central room with two doorways
-    ...hRun(2, 1, 6, [3]), ...hRun(5, 1, 6, [4]),
-    ...vRun(2, 2, 4, [3]), ...vRun(6, 3, 4, [3]),
-  ],
-  2: [ // corridor down the middle
-    ...vRun(3, 0, 3, [1]), ...vRun(5, 4, 7, [6]),
-    ...hRun(4, 0, 2), ...hRun(4, 5, 7),
-  ],
-  3: [ // L-shaped chambers
-    ...hRun(3, 0, 4, [2]), ...vRun(4, 0, 2),
-    ...hRun(5, 3, 7, [5]), ...vRun(3, 5, 7, [6]),
-  ],
-  4: [ // two side rooms
-    ...vRun(2, 1, 6, [3, 4]), ...vRun(6, 1, 6, [3, 4]),
-  ],
-  5: [ // cross of corridors
-    ...hRun(4, 0, 2), ...hRun(4, 5, 7),
-    ...vRun(4, 0, 2), ...vRun(4, 5, 7),
-  ],
-  6: [ // labyrinth-ish staggered walls
-    ...hRun(2, 0, 3), ...hRun(3, 4, 7),
-    ...hRun(5, 0, 3), ...hRun(6, 4, 7),
-    ...vRun(4, 0, 1), ...vRun(4, 6, 7),
-  ],
-  7: [ // narrow alley
-    ...vRun(2, 0, 7, [3, 4]), ...vRun(6, 0, 7, [3, 4]),
-  ],
-  8: [ // stair-stepped chambers
-    ...hRun(2, 1, 3), ...hRun(4, 3, 5), ...hRun(6, 5, 7),
-    ...vRun(3, 2, 3), ...vRun(5, 4, 5),
-  ],
-  9: [ // dual halls
-    ...hRun(3, 0, 7, [3, 4]), ...hRun(5, 0, 7, [3, 4]),
-  ],
+const TRACED: Record<number, string> = {
+  1: 'H,0,0 H,0,8 H,1,0 H,1,8 H,2,0 H,2,8 H,5,0 H,5,8 H,6,0 H,6,8 H,7,0 H,7,8 V,0,0 V,0,1 V,0,2 V,0,5 V,0,6 V,0,7 V,8,0 V,8,1 V,8,2 V,8,5 V,8,6 V,8,7',
+  2: 'H,0,0 H,0,3 H,0,5 H,0,8 H,1,0 H,1,8 H,2,0 H,2,3 H,2,5 H,2,8 H,3,5 H,4,5 H,5,0 H,5,3 H,5,5 H,5,8 H,6,0 H,6,8 H,7,0 H,7,3 H,7,5 H,7,8 V,0,0 V,0,1 V,0,2 V,0,5 V,0,6 V,0,7 V,3,0 V,3,1 V,3,2 V,3,5 V,3,6 V,3,7 V,5,0 V,5,1 V,5,2',
+  3: 'H,0,3 H,0,5 H,0,8 H,1,3 H,1,5 H,1,8 H,2,8 H,3,4 H,4,4 H,5,8 H,6,4 H,6,5 H,6,8 H,7,3 H,7,5 H,7,8 V,0,0 V,0,1 V,0,2 V,0,5 V,0,6 V,0,7 V,2,5 V,3,0 V,3,1 V,3,2 V,3,3 V,3,6 V,3,7 V,5,4 V,5,5 V,5,7 V,7,3 V,8,5 V,8,6 V,8,7',
 };
 
-/** Translate a sector's local interior walls into global coordinates. */
+/** Parse one editor edge key into a local-cell Wall ({x,y,dir}). */
+function parseEdge(key: string): Wall {
+  const [o, si, sj] = key.split(',');
+  const i = Number(si), j = Number(sj);
+  if (o === 'V') return i <= 7 ? { x: i, y: j, dir: 'W' } : { x: 7, y: j, dir: 'E' };
+  return j <= 7 ? { x: i, y: j, dir: 'N' } : { x: i, y: 7, dir: 'S' };
+}
+
+// local (per-tile) walls keyed by sector/tile id (1..9)
+const LOCAL: Record<number, Wall[]> = Object.fromEntries(
+  Object.entries(TRACED).map(([id, s]) => [Number(id), s.trim().split(/\s+/).filter(Boolean).map(parseEdge)]),
+);
+
+/** Translate a sector's local walls into global coordinates. */
 export function wallsForSector(sec: SectorPlacement): Wall[] {
   const local = LOCAL[sec.id] ?? [];
   return local.map((w) => ({ x: w.x + sec.ox, y: w.y + sec.oy, dir: w.dir }));
 }
 
-/** All interior walls for a set of placed sectors. */
+/** All walls for a set of placed sectors. */
 export function wallsForSectors(sectors: SectorPlacement[]): Wall[] {
   return sectors.flatMap(wallsForSector);
 }
