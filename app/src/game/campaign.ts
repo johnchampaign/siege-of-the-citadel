@@ -29,6 +29,7 @@ export interface CampaignState {
   completed: Record<string, boolean>;  // missionId -> accomplished at least once
   history: { mission: string; winners: string[] }[];
   champion?: string | null;            // corp that first reached the target (campaign won)
+  cloudCode?: string;                  // short code for cross-device cloud sync (if enabled)
 }
 
 const KEY = 'siege-campaign-v1';

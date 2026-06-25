@@ -43,6 +43,36 @@ export async function createOnlineGame(missionId: string, corporations?: string[
   return res.json();
 }
 
+// ---- Campaign cloud-save (cross-device resume) ----
+
+/** Create a cloud campaign; returns the short code the player re-enters elsewhere. */
+export async function createCloudCampaign(state: unknown): Promise<string> {
+  const res = await fetch(`${API_BASE}/campaign`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state),
+  });
+  if (!res.ok) throw new Error(`cloud save failed: ${res.status}`);
+  const data = await res.json();
+  if (!data?.code) throw new Error('cloud save rejected: no code');
+  return data.code as string;
+}
+
+/** Overwrite the cloud campaign under `code` with the latest standing. */
+export async function saveCloudCampaign(code: string, state: unknown): Promise<void> {
+  const res = await fetch(`${API_BASE}/campaign/${encodeURIComponent(code)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state),
+  });
+  if (!res.ok) throw new Error(`cloud sync failed: ${res.status}`);
+}
+
+/** Load a cloud campaign by code; null if the code is unknown. */
+export async function loadCloudCampaign(code: string): Promise<any | null> {
+  const res = await fetch(`${API_BASE}/campaign/${encodeURIComponent(code)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`cloud load failed: ${res.status}`);
+  const data = await res.json();
+  return data?.state ?? null;
+}
+
 export type Severity = 'bug' | 'rules-question' | 'feedback';
 
 export interface ReportPayload {

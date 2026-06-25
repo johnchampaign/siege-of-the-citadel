@@ -22,6 +22,15 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+/** A short, human-friendly campaign code (no ambiguous I/L/O/0/1). */
+function newCampaignCode(): string {
+  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  let s = '';
+  for (const b of bytes) s += alphabet[b % alphabet.length];
+  return s;
+}
+
 function makeServer(env: Env, origin: string) {
   const site = env.SITE_ORIGIN || origin;
   return new GameServer<GameState, Action, string>({
@@ -98,6 +107,32 @@ export default {
         }
         rows.sort((a: any, b: any) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
         return json({ count: rows.length, reports: rows });
+      }
+
+      // ---- Campaign cloud-save (cross-device resume) ----
+      // A campaign standing is non-PII and reversible: public read/write, the
+      // code is the obscurity. POST /campaign creates; POST/GET /campaign/:code
+      // save/load.
+      if (req.method === 'POST' && parts.length === 1 && parts[0] === 'campaign') {
+        const state = await req.json();
+        const code = newCampaignCode();
+        await env.SIEGE_KV.put(`campaign:${code}`, JSON.stringify({ state, updatedAt: new Date().toISOString() }));
+        return json({ code });
+      }
+      if (parts.length === 2 && parts[0] === 'campaign') {
+        const code = parts[1].toUpperCase();
+        if (req.method === 'GET') {
+          const row = (await env.SIEGE_KV.get(`campaign:${code}`, 'json')) as any;
+          if (!row) return json({ error: 'no such campaign' }, 404);
+          return json(row);
+        }
+        if (req.method === 'POST') {
+          const exists = await env.SIEGE_KV.get(`campaign:${code}`);
+          if (!exists) return json({ error: 'no such campaign' }, 404);
+          const state = await req.json();
+          await env.SIEGE_KV.put(`campaign:${code}`, JSON.stringify({ state, updatedAt: new Date().toISOString() }));
+          return json({ ok: true });
+        }
       }
 
       if (parts[0] === 'games' && parts[1]) {

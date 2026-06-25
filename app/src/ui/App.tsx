@@ -6,7 +6,7 @@ import { figureType, effectiveType, CORP_SPECIAL } from '../game/data';
 import { EQUIPMENT_LIST, EVENTS, DOOM_CARDS, SECONDARY_MISSIONS } from '../game/cards';
 import type { Action, GameState } from '../game/types';
 import { useAssets, VASSAL_MODULE_URL, VASSAL_MODULE_PAGE } from './assets';
-import { createOnlineGame, fetchPlayCount } from './api';
+import { createOnlineGame, fetchPlayCount, createCloudCampaign, saveCloudCampaign, loadCloudCampaign } from './api';
 import { ReportPanel } from './ReportPanel';
 import { WallEditor } from './WallEditor';
 import {
@@ -47,8 +47,24 @@ export const App: React.FC = () => {
       const next = recordResult(campaign, state);
       setCampaign(next);
       saveCampaign(next);
+      // best-effort cloud sync if cross-device save is enabled
+      if (next.cloudCode) saveCloudCampaign(next.cloudCode, next).catch(() => {});
     }
   }, [state.phase, inCampaign, campaign, state]);
+
+  // On startup, if this device has a cloud-linked campaign, pull the latest
+  // standing (another device may have progressed it). Cloud is source of truth.
+  useEffect(() => {
+    const code = campaign?.cloudCode;
+    if (!code) return;
+    loadCloudCampaign(code)
+      .then((remote) => {
+        if (remote && remote.cloudCode === code) { setCampaign(remote); saveCampaign(remote); }
+      })
+      .catch(() => {});
+    // run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const seatName = state.seats.find((s) => s.id === state.activeSeat)?.name ?? '—';
   const isLegionTurn = state.activeSeat === 'legion';
@@ -127,6 +143,23 @@ export const App: React.FC = () => {
     setCampaign(null);
     setInCampaign(false);
   }
+  // Enable cross-device save: push the current standing to the cloud, keep the code.
+  async function enableCloud(c: CampaignState): Promise<string> {
+    const code = await createCloudCampaign(c);
+    const next = { ...c, cloudCode: code };
+    setCampaign(next);
+    saveCampaign(next);
+    return code;
+  }
+  // Resume a campaign from a code typed on another device.
+  async function loadFromCode(code: string): Promise<void> {
+    const remote = await loadCloudCampaign(code.trim().toUpperCase());
+    if (!remote) throw new Error('No campaign found for that code.');
+    const next = { ...remote, cloudCode: code.trim().toUpperCase() };
+    setCampaign(next);
+    saveCampaign(next);
+    setInCampaign(false);
+  }
 
   const lastLog = state.log.slice(-12).reverse();
   const promotionRows = Object.entries(state.promotion);
@@ -190,6 +223,8 @@ export const App: React.FC = () => {
           onStart={startCampaign}
           onPlay={(c, mid) => playCampaignMission(c, mid)}
           onReset={resetCampaign}
+          onEnableCloud={enableCloud}
+          onLoadFromCode={loadFromCode}
         />
 
         <MultiplayerPanel missionId={missionId} />
@@ -543,8 +578,13 @@ const CampaignPanel: React.FC<{
   onStart: () => void;
   onPlay: (c: CampaignState, missionId: string) => void;
   onReset: () => void;
-}> = ({ campaign, inCampaign, phase, onStart, onPlay, onReset }) => {
+  onEnableCloud: (c: CampaignState) => Promise<string>;
+  onLoadFromCode: (code: string) => Promise<void>;
+}> = ({ campaign, inCampaign, phase, onStart, onPlay, onReset, onEnableCloud, onLoadFromCode }) => {
   const busy = inCampaign && phase !== 'over'; // a campaign mission is mid-play
+  const [codeInput, setCodeInput] = useState('');
+  const [cloudMsg, setCloudMsg] = useState<string | null>(null);
+  const [cloudBusy, setCloudBusy] = useState(false);
   return (
     <Panel title="Campaign">
       {!campaign ? (
@@ -553,6 +593,18 @@ const CampaignPanel: React.FC<{
           your Rank, Promotion Points and Credits forward. First corporation to reach the points
           target wins.
           <button style={{ ...btn, marginTop: 8, background: '#2a6', fontWeight: 700 }} onClick={onStart}>▶ Start Campaign</button>
+          <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid #333' }}>
+            <div style={{ color: '#999', marginBottom: 4 }}>Resume on this device with a campaign code:</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input value={codeInput} onChange={(e) => setCodeInput(e.target.value)} placeholder="e.g. K7QP2M" maxLength={6}
+                style={{ flex: 1, background: '#111', color: '#ddd', border: '1px solid #444', borderRadius: 4, padding: '4px 6px', textTransform: 'uppercase', fontFamily: 'monospace' }} />
+              <button style={btn} disabled={cloudBusy || codeInput.trim().length < 6} onClick={async () => {
+                setCloudBusy(true); setCloudMsg(null);
+                try { await onLoadFromCode(codeInput); } catch (e: any) { setCloudMsg(e?.message ?? 'Load failed.'); } finally { setCloudBusy(false); }
+              }}>Resume</button>
+            </div>
+            {cloudMsg && <div style={{ color: '#e88', marginTop: 4 }}>{cloudMsg}</div>}
+          </div>
         </div>
       ) : (
         <div style={{ fontSize: 12 }}>
@@ -606,7 +658,25 @@ const CampaignPanel: React.FC<{
           {allMissionsDone(campaign) && !campaignWon(campaign) && (
             <div style={{ fontSize: 11, color: '#7c7', marginBottom: 6 }}>🎖 All missions cleared — replay any to grow toward {campaign.target} pp.</div>
           )}
-          <button style={btn} onClick={onReset}>Reset campaign</button>
+          {/* cross-device cloud save */}
+          <div style={{ marginTop: 6, paddingTop: 8, borderTop: '1px solid #333' }}>
+            {campaign.cloudCode ? (
+              <div style={{ color: '#9c9' }}>
+                ☁ Cross-device code: <b style={{ color: '#7cf', fontFamily: 'monospace', letterSpacing: 1 }}>{campaign.cloudCode}</b>
+                <button style={{ ...btn, padding: '1px 6px', marginLeft: 6 }} onClick={() => { navigator.clipboard?.writeText(campaign.cloudCode!); setCloudMsg('Copied!'); }}>copy</button>
+                <div style={{ color: '#888', marginTop: 2 }}>Enter this code on another device to continue. Synced after each mission.</div>
+              </div>
+            ) : (
+              <button style={btn} disabled={cloudBusy} onClick={async () => {
+                setCloudBusy(true); setCloudMsg(null);
+                try { const code = await onEnableCloud(campaign); setCloudMsg(`Cloud code: ${code}`); }
+                catch (e: any) { setCloudMsg(e?.message ?? 'Could not enable cloud save.'); }
+                finally { setCloudBusy(false); }
+              }}>☁ Enable cross-device save</button>
+            )}
+            {cloudMsg && <div style={{ color: '#9c9', marginTop: 4 }}>{cloudMsg}</div>}
+          </div>
+          <button style={{ ...btn, marginTop: 6 }} onClick={onReset}>Reset campaign</button>
         </div>
       )}
     </Panel>
