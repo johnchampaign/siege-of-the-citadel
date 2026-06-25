@@ -8,6 +8,7 @@ import type { Action, GameState } from '../game/types';
 import { useAssets, VASSAL_MODULE_URL, VASSAL_MODULE_PAGE } from './assets';
 import { createOnlineGame, fetchPlayCount } from './api';
 import { ReportPanel } from './ReportPanel';
+import { WallEditor } from './WallEditor';
 import {
   type CampaignState, loadCampaign, saveCampaign, newCampaign, clearCampaign,
   ranks, currentMission, isComplete, recordResult, CAMPAIGN_CORPS,
@@ -32,6 +33,7 @@ export const App: React.FC = () => {
   const [theme, setTheme] = useState<'designed' | 'art'>('designed');
   const useArt = theme === 'art' && assets.loaded;
   const [showCoords, setShowCoords] = useState(false);
+  const [view, setView] = useState<'play' | 'walls'>('play');
   const [campaign, setCampaign] = useState<CampaignState | null>(() => loadCampaign());
   const [inCampaign, setInCampaign] = useState(false);
   const recordedRef = React.useRef(false);
@@ -128,11 +130,14 @@ export const App: React.FC = () => {
   const lastLog = state.log.slice(-12).reverse();
   const promotionRows = Object.entries(state.promotion);
 
+  if (view === 'walls') return <WallEditor onBack={() => setView('play')} />;
+
   return (
     <div style={{ display: 'flex', gap: 16, padding: 16, fontFamily: 'system-ui, sans-serif', color: '#ddd', minHeight: '100vh', background: '#161616' }}>
       <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-        <h1 style={{ margin: '0 0 4px', fontSize: 22, color: '#e8c349', letterSpacing: 1 }}>
+        <h1 style={{ margin: '0 0 4px', fontSize: 22, color: '#e8c349', letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 12 }}>
           MUTANT CHRONICLES
+          <button style={{ background: '#2d2d2d', color: '#ccc', border: '1px solid #555', borderRadius: 6, padding: '3px 9px', cursor: 'pointer', fontSize: 12, letterSpacing: 0 }} onClick={() => setView('walls')}>🧱 Wall Editor</button>
         </h1>
         <div style={{ margin: '0 0 12px', color: '#a55', fontSize: 13, letterSpacing: 2 }}>SIEGE OF THE CITADEL <PlayCount /></div>
         <div style={{ overflow: 'auto', maxHeight: '82vh', border: '1px solid #333' }}>
