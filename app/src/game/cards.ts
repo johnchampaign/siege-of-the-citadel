@@ -87,6 +87,9 @@ export type DoomEffect =
   | 'shield'          // the Dark Legion may not attack your Doomtroopers this round
   | 'armor-down'      // a chosen Legion figure's Armor is lowered by 1 this round (Weak Spot)
   | 'attack-legion'   // strike a chosen Legion figure with 3 black dice (Control Defense System)
+  | 'reroll'          // re-roll one die in each of your attacks this round (Heroic Luck)
+  | 'phase'           // your Doomtroopers move through walls this round (Molecular Phasing)
+  | 'teleport'        // teleport one of your Doomtroopers to a chosen square (Limited / Faulty)
   | 'flavor';         // narrative / manual-resolve power, no automatic effect
 
 export interface DoomCardDef {
@@ -108,7 +111,7 @@ export const DOOM_CARDS: Record<string, DoomCardDef> = {
     blurb: 'Combat Aura: a force field demoralises the Legion — it may not attack your Doomtroopers this Round. / Legionnaire Fear: a chosen pair may not attack Legionnaires in close combat for the rest of the mission.' },
   cds_rcd: { id: 'cds_rcd', name: 'Control Defense System / Remote Controlled Door', effect: 'attack-legion', needsTarget: 'legion',
     blurb: 'Control Defense System: seize a defense turret — attack one chosen Legion figure with three black dice. / Remote Controlled Door: place a door across a corridor up to two squares wide.' },
-  hl_nf:   { id: 'hl_nf',   name: 'Heroic Luck / Necrofear', effect: 'flavor',
+  hl_nf:   { id: 'hl_nf',   name: 'Heroic Luck / Necrofear', effect: 'reroll',
     blurb: 'Heroic Luck: re-roll one die in each of your remaining attacks this Combat Round. / Necrofear: a chosen pair may not attack Necromutants in close combat for the rest of the mission.' },
   lt_dr:   { id: 'lt_dr',   name: 'Limited Teleportation / Dud Round', effect: 'flavor',
     blurb: 'Limited Teleportation: teleport one of your Doomtroopers to an adjacent sector. / Dud Round: played after a successful firearm attack on a chosen pair — that attack failed (faulty ammo).' },
@@ -116,7 +119,7 @@ export const DOOM_CARDS: Record<string, DoomCardDef> = {
     blurb: 'Medicine Injector: an auto-injector reduces one of your Doomtroopers\' wounds by 2. / Combat Neurosis: a chosen pair may perform only one Action each this Round (no extra Actions).' },
   m_ut:    { id: 'm_ut',    name: 'Medic / Uncalibrated Targeter', effect: 'heal', needsTarget: 'trooper',
     blurb: 'Medic: a Combat Medic Unit heals 2 wounds on one of your Doomtroopers. / Uncalibrated Targeter: a chosen Doomtrooper fires with dice two Ranks lower for the rest of the mission.' },
-  mp_ce:   { id: 'mp_ce',   name: 'Molecular Phasing / Coordinating Error', effect: 'flavor',
+  mp_ce:   { id: 'mp_ce',   name: 'Molecular Phasing / Coordinating Error', effect: 'phase',
     blurb: 'Molecular Phasing: your Doomtroopers may move through walls this Combat Round (not between stair levels). / Coordinating Error: a chosen pair immediately loses 2 extra Actions.' },
   mb_ft:   { id: 'mb_ft',   name: 'Movement Boost / Faulty Teleportation', effect: 'extra-actions',
     blurb: 'Movement Boost: an energy injector gives your Doomtroopers a free movement action each, immediately. / Faulty Teleportation: a chosen Doomtrooper is teleported to a sector of your choice.' },
@@ -194,7 +197,9 @@ export type EventEffect =
   | 'no-firearm'      // Doomtroopers may not make firearm attacks this round (Mental Block)
   | 'no-melee'        // Doomtroopers may not make close-combat attacks this round (Close Combat Phobia)
   | 'direct-damage'   // strike a Doomtrooper with 3 black dice (Temporary Defense)
-  | 'flavor';         // narrative power not auto-modelled (re-rolls, teleport, action-throttle)
+  | 'reroll-melee'    // all Legion figures re-roll one die in close combat (Close Combat Frenzy)
+  | 'reroll-all'      // all Legion figures re-roll one die in every attack (Dark Energy Wave)
+  | 'flavor';         // narrative power not auto-modelled (teleport, action-throttle)
 
 export interface EventDef {
   id: string;
@@ -209,11 +214,11 @@ export interface EventDef {
 export const EVENTS: Record<string, EventDef> = {
   charge:        { id: 'charge', name: "The Legionnaires' Charge", effect: 'spawn-only', anyEntrance: true,
     blurb: 'A massed charge — reinforcements may enter through any entrance. Reinforcements: 1 Centurion, 1 Necromutant, 8 Legionnaires.', spawn: ['centurion', 'necromutant', 'legionnaire', 'legionnaire', 'legionnaire', 'legionnaire', 'legionnaire', 'legionnaire', 'legionnaire', 'legionnaire'] },
-  ccfrenzy:      { id: 'ccfrenzy', name: 'Close Combat Frenzy', effect: 'flavor',
+  ccfrenzy:      { id: 'ccfrenzy', name: 'Close Combat Frenzy', effect: 'reroll-melee',
     blurb: 'All Legion figures re-roll one die when attacking in close combat this round. Reinforcements: 1 Centurion, 1 Necromutant, 1 Legionnaire.', spawn: ['centurion', 'necromutant', 'legionnaire'] },
   ccphobia:      { id: 'ccphobia', name: 'Close Combat Phobia', effect: 'no-melee',
     blurb: 'A phobia grips the Doomtroopers — they may not attack in close combat this round. Reinforcements: 1 Centurion, 1 Necromutant.', spawn: ['centurion', 'necromutant'] },
-  darkwave:      { id: 'darkwave', name: 'Dark Energy Wave', effect: 'flavor',
+  darkwave:      { id: 'darkwave', name: 'Dark Energy Wave', effect: 'reroll-all',
     blurb: 'All Legion figures re-roll one attack die in every attack this Combat Round. Reinforcements: 1 Necromutant, 2 Legionnaires.', spawn: ['necromutant', 'legionnaire', 'legionnaire'] },
   darkinfluence: { id: 'darkinfluence', name: 'Dark Influence', effect: 'boost', boost: ['legionnaire', 'necromutant', 'centurion', 'razide', 'nepharite', 'ezoghoul', 'alakhai'],
     blurb: 'The Legion senses the Dark Symmetry — the Legion surges with extra Actions this round. Reinforcements: 2 Legionnaires.', spawn: ['legionnaire', 'legionnaire'] },

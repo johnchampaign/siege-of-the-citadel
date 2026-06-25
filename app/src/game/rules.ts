@@ -109,6 +109,10 @@ export function canStep(state: GameState, x: number, y: number, tx: number, ty: 
   if (!onBoard(state, tx, ty)) return false;
   if (inCitadel(state, tx, ty)) return false; // the Citadel is solid
   if (figureAt(state, tx, ty)) return false;
+  // Molecular Phasing: the moving figure's team may pass through walls this round
+  // (the Citadel base and board edges still block — handled above).
+  const mover = figureAt(state, x, y);
+  if (mover && state.roundFx?.phase === mover.owner) return true;
   return !wallBlocksStep(state.walls, x, y, tx, ty, /* strictCorner */ true);
 }
 
@@ -159,15 +163,18 @@ export function hasLineOfSight(state: GameState, ax: number, ay: number, bx: num
 
 // ---------- combat ----------
 
-export function rollDice(rng: Rng, count: number, color: DiceColor): { dice: number[]; hits: number } {
+export function rollDice(rng: Rng, count: number, color: DiceColor, reroll = 0): { dice: number[]; hits: number } {
   const dice: number[] = [];
-  let hits = 0;
   const thr = HIT_THRESHOLD[color];
-  for (let i = 0; i < count; i++) {
-    const r = rng.rollDie(6);
-    dice.push(r);
-    if (r <= thr) hits++;
+  for (let i = 0; i < count; i++) dice.push(rng.rollDie(6));
+  // Re-roll cards: re-roll up to `reroll` missed dice once (worst miss first).
+  for (let r = 0; r < reroll; r++) {
+    let worst = -1;
+    for (let i = 0; i < dice.length; i++) if (dice[i] > thr && (worst < 0 || dice[i] > dice[worst])) worst = i;
+    if (worst < 0) break; // nothing left to re-roll
+    dice[worst] = rng.rollDie(6);
   }
+  const hits = dice.reduce((n, d) => n + (d <= thr ? 1 : 0), 0);
   return { dice, hits };
 }
 
@@ -198,9 +205,10 @@ export function resolveAttack(
   targetWounds: number,
   weaponIdx: number,
   saveColor: DiceColor = 'white',
+  reroll = 0,
 ): AttackOutcome {
   const weapon = at.weapons[weaponIdx];
-  const { dice, hits } = rollDice(rng, weapon.dice, weapon.color);
+  const { dice, hits } = rollDice(rng, weapon.dice, weapon.color, reroll);
 
   let kevlariteSaves = 0;
   if (tt.isTrooper && tt.kevlariteDice && hits > tt.armor) {

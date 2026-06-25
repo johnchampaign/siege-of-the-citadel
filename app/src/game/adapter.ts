@@ -206,6 +206,8 @@ function applyEventEffect(s: GameState, ev: { effect: string; boost?: string[] }
     case 'boost': s.roundFx.boost = ev.boost ?? []; break;
     case 'no-firearm': s.roundFx.noFirearm = true; break;
     case 'no-melee': s.roundFx.noMelee = true; break;
+    case 'reroll-melee': s.roundFx.reroll = { legion: 'melee' }; break;
+    case 'reroll-all': s.roundFx.reroll = { legion: 'all' }; break;
     case 'direct-damage': {
       // Strike one Doomtrooper with three black dice (auto-targets the most wounded).
       const target = s.figures.filter((f) => f.alive && f.owner !== 'legion')
@@ -227,6 +229,17 @@ function applyEventEffect(s: GameState, ev: { effect: string; boost?: string[] }
 /** Does figure `fig` get the round's +1-action boost (from an Event/boost card)? */
 function boostFor(s: GameState, fig: Figure): boolean {
   return !!s.roundFx.boost && s.roundFx.boost.includes(fig.typeId);
+}
+
+/** How many attack dice may `attacker` re-roll this round (Heroic Luck / Close
+ *  Combat Frenzy / Dark Energy Wave)? */
+function rerollFor(s: GameState, attacker: Figure, kind: string): number {
+  const rr = s.roundFx.reroll;
+  if (!rr) return 0;
+  if (attacker.owner !== 'legion') return rr.team === attacker.owner ? 1 : 0;
+  if (rr.legion === 'all') return 1;
+  if (rr.legion === 'melee' && kind === 'close') return 1;
+  return 0;
 }
 
 /** A figure's effective Armor for this round (Weak Spot lowers a Legion figure). */
@@ -743,11 +756,12 @@ function applyHits(s: GameState, attacker: Figure, fig: Figure, hits: number, rn
 function resolveCombat(s: GameState, attacker: Figure, target: Figure, ft: FigureType, w: Weapon, weaponIdx: number) {
   const rng = rngFor(s);
   const fromFirearm = w.kind === 'firearm';
+  const reroll = rerollFor(s, attacker, w.kind); // Heroic Luck / Close Combat Frenzy / Dark Energy Wave
 
   if (!w.area) {
     const tt0 = effectiveType(target, s.rank[target.owner] ?? 1, boostFor(s, target));
     const tt = { ...tt0, armor: armorOf(s, target, tt0) }; // Weak Spot lowers armor this round
-    const out = resolveAttack(rng, ft, tt, target.woundsTaken, weaponIdx, rankSaveColor(s.rank[target.owner] ?? 1));
+    const out = resolveAttack(rng, ft, tt, target.woundsTaken, weaponIdx, rankSaveColor(s.rank[target.owner] ?? 1), reroll);
     s.lastRoll = {
       dice: out.dice, color: out.color, hits: out.hits, label: out.label,
       attackerOwner: attacker.owner, attackerName: ft.name, targetName: tt.name, weapon: w.name,
@@ -778,13 +792,13 @@ function resolveCombat(s: GameState, attacker: Figure, target: Figure, ft: Figur
       .filter((g) => g.alive && g.uid !== target.uid && (g.owner === 'legion') !== (attacker.owner === 'legion')
         && dist(attacker.x, attacker.y, g.x, g.y) <= w.range && hasLineOfSight(s, attacker.x, attacker.y, g.x, g.y))
       .sort((a, b) => dist(target.x, target.y, a.x, a.y) - dist(target.x, target.y, b.x, b.y))[0];
-    const r1 = rollDice(rng, w.dice, w.color);
+    const r1 = rollDice(rng, w.dice, w.color, reroll);
     s.lastRoll = { dice: r1.dice, color: w.color, hits: r1.hits, label: `${ft.name} fires ${w.name}: ${r1.hits} hit(s)`,
       attackerOwner: attacker.owner, attackerName: ft.name, weapon: w.name, area: w.area };
     s.log.push(s.lastRoll!.label);
     applyHits(s, attacker, target, r1.hits, rng, fromFirearm);
     if (second) {
-      const r2 = rollDice(rng, w.dice, w.color);
+      const r2 = rollDice(rng, w.dice, w.color, reroll);
       s.log.push(`  second target — ${r2.hits} hit(s)`);
       applyHits(s, attacker, second, r2.hits, rng, fromFirearm);
     }
@@ -793,7 +807,7 @@ function resolveCombat(s: GameState, attacker: Figure, target: Figure, ft: Figur
   }
 
   // swing / line / blast: roll once, fan the hits across the affected squares.
-  const r = rollDice(rng, w.dice, w.color);
+  const r = rollDice(rng, w.dice, w.color, reroll);
   s.lastRoll = { dice: r.dice, color: w.color, hits: r.hits, label: `${ft.name} unleashes ${w.name}: ${r.hits} hit(s)`,
     attackerOwner: attacker.owner, attackerName: ft.name, weapon: w.name, area: w.area };
   s.log.push(s.lastRoll!.label);
@@ -877,6 +891,12 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       s.rngState = rng.serialize();
       break;
     }
+    case 'reroll': // Heroic Luck — re-roll one die in each of your attacks this round
+      (s.roundFx.reroll ??= {}).team = action.corp;
+      break;
+    case 'phase': // Molecular Phasing — your Doomtroopers move through walls this round
+      s.roundFx.phase = action.corp;
+      break;
     case 'flavor': // narrative power — no automatic mechanic
       s.log.push('  (Resolve this card\'s effect manually.)');
       break;

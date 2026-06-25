@@ -137,6 +137,8 @@ export interface RoundFx {
   noMelee?: boolean;                // Doomtroopers can't make close-combat attacks this round
   shield?: Record<string, boolean>; // corp -> its Doomtroopers can't be attacked this round
   armorDown?: string[];             // figure uids whose Armor is -1 this round
+  reroll?: { team?: string; legion?: 'all' | 'melee' }; // re-roll one attack die this round
+  phase?: string;                   // corp whose Doomtroopers move through walls this round
 }
 
 export interface GameState {
