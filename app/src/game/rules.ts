@@ -16,10 +16,18 @@ export function figureAt(state: GameState, x: number, y: number): Figure | undef
   return state.figures.find((f) => f.alive && f.x === x && f.y === y);
 }
 
-/** Is (x,y) inside the solid Citadel construction? It blocks movement and LOS. */
+/** Is (x,y) inside the solid Citadel construction? It blocks movement and LOS.
+ *  The Citadel is a cross (a black cross with the Dark Legion symbol at center):
+ *  a central w×h body plus four arms of length `arm`. Without `arm` it is just
+ *  the central rectangle. */
 export function inCitadel(state: GameState, x: number, y: number): boolean {
   const c = state.citadel;
-  return !!c && x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h;
+  if (!c) return false;
+  if (!c.arm) return x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h;
+  // vertical bar (center + top + bottom arms) | horizontal bar (center + side arms)
+  const vert = x >= c.x && x < c.x + c.w && y >= c.y - c.arm && y < c.y + c.h + c.arm;
+  const horiz = y >= c.y && y < c.y + c.h && x >= c.x - c.arm && x < c.x + c.w + c.arm;
+  return vert || horiz;
 }
 
 const DIRS: Record<string, [number, number]> = {

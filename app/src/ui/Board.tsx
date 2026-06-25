@@ -154,30 +154,32 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
         return <div key={'w' + i} style={style} />;
       })}
 
-      {/* citadel */}
-      {state.citadel && (
-        <div
-          style={{
-            position: 'absolute',
-            left: px(state.citadel.x),
-            top: py(state.citadel.y),
-            width: state.citadel.w * CELL,
-            height: state.citadel.h * CELL,
-            background: 'radial-gradient(circle, #3a0000, #120000)',
-            border: '2px solid #7a1010',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#c33',
-            fontSize: 10,
-            fontWeight: 700,
-            textAlign: 'center',
-            pointerEvents: 'none',
-          }}
-        >
-          CITADEL
-        </div>
-      )}
+      {/* citadel — a cross (central body + four arms) when `arm` is set */}
+      {state.citadel && (() => {
+        const c = state.citadel;
+        const arm = c.arm ?? 0;
+        const barStyle: React.CSSProperties = {
+          position: 'absolute',
+          background: 'radial-gradient(circle, #3a0000, #120000)',
+          border: '2px solid #7a1010',
+          boxSizing: 'border-box',
+          pointerEvents: 'none',
+        };
+        return (
+          <>
+            {/* vertical bar */}
+            <div style={{ ...barStyle, left: px(c.x), top: py(c.y - arm), width: c.w * CELL, height: (c.h + 2 * arm) * CELL }} />
+            {/* horizontal bar */}
+            <div style={{ ...barStyle, left: px(c.x - arm), top: py(c.y), width: (c.w + 2 * arm) * CELL, height: c.h * CELL }} />
+            {/* central label / Dark Legion mark */}
+            <div style={{
+              position: 'absolute', left: px(c.x), top: py(c.y), width: c.w * CELL, height: c.h * CELL,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#c33', fontSize: 9, fontWeight: 700, textAlign: 'center', pointerEvents: 'none',
+            }}>CITADEL</div>
+          </>
+        );
+      })()}
 
       {/* entrance arrows */}
       {state.legionEntrances.map((e, i) => (

@@ -89,7 +89,7 @@ export interface MissionDef {
   objective: string;
   sectors: SectorPlacement[];
   walls: Wall[];
-  citadel?: { x: number; y: number; w: number; h: number };
+  citadel?: { x: number; y: number; w: number; h: number; arm?: number };
   trooperEntrances: { x: number; y: number }[];
   legionEntrances: { x: number; y: number }[];
   exits?: { x: number; y: number }[];
@@ -136,7 +136,7 @@ export interface GameState {
   figures: Figure[];
   sectors: SectorPlacement[];
   walls: Wall[];
-  citadel?: { x: number; y: number; w: number; h: number };
+  citadel?: { x: number; y: number; w: number; h: number; arm?: number };
   exits: { x: number; y: number }[];
   forceCards: ForceCardPlacement[];
   legionEntrances: { x: number; y: number }[];
