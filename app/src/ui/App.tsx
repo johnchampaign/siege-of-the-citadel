@@ -32,6 +32,10 @@ export const App: React.FC = () => {
       if (state.lastRoll) setResultModal(state.lastRoll);
     }
   }, [state]);
+  // Win/loss announcement modal — pops up when the mission ends so the result
+  // isn't buried below the fold.
+  const [gameOverModal, setGameOverModal] = useState(false);
+  useEffect(() => { setGameOverModal(state.phase === 'over'); }, [state.phase]);
   const [theme, setTheme] = useState<'designed' | 'art'>('designed');
   const useArt = theme === 'art' && assets.loaded;
   const [showCoords, setShowCoords] = useState(false);
@@ -423,6 +427,42 @@ export const App: React.FC = () => {
       </div>
 
       {resultModal && <CombatResultModal roll={resultModal} onClose={() => setResultModal(null)} />}
+
+      {/* win/loss announcement — shown after any combat-result modal is dismissed */}
+      {gameOverModal && !resultModal && state.phase === 'over' && (() => {
+        const won = (state.winners ?? []).some((w) => w !== 'legion');
+        const reason = [...state.log].reverse().find((l) => l.includes('GAME OVER'))?.replace(/^GAME OVER — /, '') ?? '';
+        const nextM = inCampaign && campaign && !campaignWon(campaign) ? suggestedMission(campaign) : null;
+        return (
+          <div onClick={() => setGameOverModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: '#1c1c20', border: `2px solid ${won ? '#3a7' : '#a33'}`, borderRadius: 12, padding: 26, maxWidth: 440, textAlign: 'center', boxShadow: '0 10px 40px #000' }}>
+              <div style={{ fontSize: 30, fontWeight: 900, color: won ? '#6f6' : '#f66', textShadow: `0 0 14px ${won ? '#2a4' : '#722'}` }}>
+                {won ? '🏆 VICTORY' : '☠ DEFEAT'}
+              </div>
+              {reason && <div style={{ fontSize: 14, color: '#cdd', marginTop: 10, lineHeight: 1.5 }}>{reason}</div>}
+              {inCampaign && campaign && (
+                <div style={{ marginTop: 12, fontSize: 12, color: '#9ab', borderTop: '1px solid #333', paddingTop: 10 }}>
+                  {campaignWon(campaign)
+                    ? <div style={{ color: '#e8c349', fontWeight: 700 }}>🏆 {campaign.champion} has won the campaign ({campaign.target} pp)!</div>
+                    : CAMPAIGN_CORPS.map((c) => (
+                        <div key={c}>{c}: <span style={{ color: '#7cf' }}>R{ranks(campaign)[c]}</span> · <span style={{ color: '#7c7' }}>{campaign.credits[c]}c</span> · <span style={{ color: '#e8c349' }}>{campaign.promotion[c]}/{campaign.target}pp</span></div>
+                      ))}
+                </div>
+              )}
+              <div style={{ marginTop: 18, display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                {!inCampaign && <button style={{ ...btn, background: '#2a6', padding: '8px 18px' }} onClick={() => newGame(missionId)}>↻ Play Again</button>}
+                {inCampaign && campaign && !campaignWon(campaign) && (
+                  <>
+                    <button style={{ ...btn, padding: '8px 16px' }} onClick={() => playCampaignMission(campaign, missionId)}>↻ Replay</button>
+                    {nextM && <button style={{ ...btn, background: '#2a6', padding: '8px 16px' }} onClick={() => playCampaignMission(campaign, nextM.id)}>▶ Next: {nextM.name.replace('Mission ', 'M').split(':')[0]}</button>}
+                  </>
+                )}
+                <button style={{ ...btn, padding: '8px 16px' }} onClick={() => setGameOverModal(false)}>Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
