@@ -105,7 +105,10 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
                 width: CELL,
                 height: CELL,
                 boxSizing: 'border-box',
-                border: '1px solid rgba(255,255,255,0.08)',
+                // In Module-art mode the tile already shows the printed squares,
+                // so don't draw a competing grid line over busy art — let the
+                // painted mats be the grid. The Designed theme keeps faint lines.
+                border: useArt ? 'none' : '1px solid rgba(255,255,255,0.08)',
                 background: isMove ? 'rgba(80,200,120,0.35)' : 'transparent',
                 cursor: isMove ? 'pointer' : 'default',
               }}
