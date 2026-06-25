@@ -104,6 +104,7 @@ export function createInitialState(opts: NewGameOpts): GameState {
     usesEvents,
     eventDeck,
     pendingEvent: null,
+    roundFx: {},
     setupDone: false,
     win: mission.win,
     winners: null,
@@ -199,12 +200,46 @@ function shuffledSeatOrder(s: GameState): string[] {
   return order;
 }
 
+/** Apply a drawn Event card's round effect (reinforcements are spawned separately). */
+function applyEventEffect(s: GameState, ev: { effect: string; boost?: string[] }) {
+  switch (ev.effect) {
+    case 'boost': s.roundFx.boost = ev.boost ?? []; break;
+    case 'no-firearm': s.roundFx.noFirearm = true; break;
+    case 'no-melee': s.roundFx.noMelee = true; break;
+    case 'direct-damage': {
+      // Strike one Doomtrooper with three black dice (auto-targets the most wounded).
+      const target = s.figures.filter((f) => f.alive && f.owner !== 'legion')
+        .sort((a, b) => b.woundsTaken - a.woundsTaken)[0];
+      const atk = s.figures.find((f) => f.alive && f.owner === 'legion') ?? target;
+      if (target) {
+        const rng = rngFor(s);
+        const { hits } = rollDice(rng, 3, 'black');
+        s.log.push(`  Temporary Defense fires 3 black dice at ${figureType(target.typeId).name} — ${hits} hit(s).`);
+        applyHits(s, atk, target, hits, rng, false);
+        s.rngState = rng.serialize();
+      }
+      break;
+    }
+    default: break; // spawn-only / flavor — reinforcements (if any) already placed
+  }
+}
+
+/** Does figure `fig` get the round's +1-action boost (from an Event/boost card)? */
+function boostFor(s: GameState, fig: Figure): boolean {
+  return !!s.roundFx.boost && s.roundFx.boost.includes(fig.typeId);
+}
+
+/** A figure's effective Armor for this round (Weak Spot lowers a Legion figure). */
+function armorOf(s: GameState, fig: Figure, tt: { armor: number }): number {
+  return Math.max(0, tt.armor - (s.roundFx.armorDown?.includes(fig.uid) ? 1 : 0));
+}
+
 function beginRound(s: GameState) {
   s.round += 1;
   (s as any)._steps = {}; // clear any in-progress move steps
+  s.roundFx = {}; // transient card effects reset every round
 
   // Dark Legion event card (if the mission uses events)
-  let frenzy = false;
   s.pendingEvent = null;
   if (s.usesEvents && s.eventDeck.length > 0) {
     const id = s.eventDeck.shift()!;
@@ -212,15 +247,14 @@ function beginRound(s: GameState) {
     const ev = EVENTS[id];
     s.log.push(`Dark Legion event: ${ev.name} — ${ev.blurb}`);
     if (ev.spawn) spawnAtLegionEntrance(s, ev.spawn);
-    if (ev.legionFrenzy) frenzy = true;
+    applyEventEffect(s, ev);
   }
-  (s as any)._frenzy = frenzy;
 
-  // reset actions for all figures (equipment / frenzy folded in) and refill the
+  // reset actions for all figures (equipment / boost folded in) and refill the
   // corporations' shared Extra Action pools from their Rank.
   for (const f of s.figures) {
     if (!f.alive) continue;
-    f.actionsLeft = effectiveType(f, s.rank[f.owner] ?? 1, frenzy).actions;
+    f.actionsLeft = effectiveType(f, s.rank[f.owner] ?? 1, boostFor(s, f)).actions;
     f.actionsTaken = 0;
   }
   for (const c of Object.keys(s.extraPool)) s.extraPool[c] = extraActionPoolSize(s.rank[c] ?? 1);
@@ -456,8 +490,11 @@ export const adapter: GameAdapter<GameState, Action, string> = {
     // Doomtrooper Cards may be played on your turn.
     for (const cardId of s.doomHands[actor] ?? []) {
       const card = DOOM_CARDS[cardId];
-      if (card?.needsTarget) {
+      if (card?.needsTarget === 'trooper') {
         for (const t of s.figures.filter((g) => g.alive && g.owner === actor && g.woundsTaken > 0))
+          actions.push({ type: 'play-doom-card', corp: actor, cardId, targetUid: t.uid });
+      } else if (card?.needsTarget === 'legion') {
+        for (const t of s.figures.filter((g) => g.alive && g.owner === 'legion'))
           actions.push({ type: 'play-doom-card', corp: actor, cardId, targetUid: t.uid });
       } else {
         actions.push({ type: 'play-doom-card', corp: actor, cardId });
@@ -477,19 +514,26 @@ export const adapter: GameAdapter<GameState, Action, string> = {
           }
       }
       if (canTakeAction(s, f)) {
-        const ft = effectiveType(f, s.rank[f.owner] ?? 1, (s as any)._frenzy);
+        const ft = effectiveType(f, s.rank[f.owner] ?? 1, boostFor(s, f));
+        const trooperActor = f.owner !== 'legion';
         for (const target of s.figures) {
           if (!target.alive) continue;
           const enemy = (f.owner === 'legion') !== (target.owner === 'legion');
           if (!enemy) continue;
+          // Combat Aura / Spectral Displacement: the Legion can't attack a shielded corp this round.
+          if (!trooperActor && s.roundFx.shield?.[target.owner]) continue;
           ft.weapons.forEach((w, idx) => {
             const d = dist(f.x, f.y, target.x, target.y);
             if (w.kind === 'close') {
+              // Close Combat Phobia stops Doomtrooper melee this round.
+              if (trooperActor && s.roundFx.noMelee) return;
               // close combat needs an adjacent square with no wall between (you
               // can't reach a hand weapon through a wall).
               if (d === 1 && !wallBlocksStep(s.walls, f.x, f.y, target.x, target.y))
                 actions.push({ type: 'attack', uid: f.uid, targetUid: target.uid, weaponIdx: idx });
             } else {
+              // Mental Block stops Doomtrooper firearms this round.
+              if (trooperActor && s.roundFx.noFirearm) return;
               if (d >= 1 && d <= w.range && hasLineOfSight(s, f.x, f.y, target.x, target.y))
                 actions.push({ type: 'attack', uid: f.uid, targetUid: target.uid, weaponIdx: idx });
             }
@@ -608,16 +652,20 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       if (!target) return { state, ok: false, reason: 'no target' };
       const enemy = (f.owner === 'legion') !== (target.owner === 'legion');
       if (!enemy) return { state, ok: false, reason: 'cannot attack ally' };
-      const ft = effectiveType(f, s.rank[f.owner] ?? 1, (s as any)._frenzy);
+      const ft = effectiveType(f, s.rank[f.owner] ?? 1, boostFor(s, f));
       const w = ft.weapons[action.weaponIdx];
       if (!w) return { state, ok: false, reason: 'bad weapon' };
       const d = dist(f.x, f.y, target.x, target.y);
+      const trooperAtk = f.owner !== 'legion';
+      if (s.roundFx.shield?.[target.owner]) return { state, ok: false, reason: 'target is shielded this round' };
       if (w.kind === 'close') {
+        if (trooperAtk && s.roundFx.noMelee) return { state, ok: false, reason: 'close combat blocked this round' };
         if (d !== 1) return { state, ok: false, reason: 'not adjacent' };
         if (wallBlocksStep(s.walls, f.x, f.y, target.x, target.y))
           return { state, ok: false, reason: 'wall blocks close combat' };
       }
       if (w.kind === 'firearm') {
+        if (trooperAtk && s.roundFx.noFirearm) return { state, ok: false, reason: 'firearms blocked this round' };
         if (d < 1 || d > w.range) return { state, ok: false, reason: 'out of range' };
         if (!hasLineOfSight(s, f.x, f.y, target.x, target.y))
           return { state, ok: false, reason: 'no line of sight' };
@@ -658,12 +706,13 @@ function loseDoomtrooper(s: GameState, owner: string) {
  *  handles kill scoring, friendly-fire penalty, and firearm-kill tallies. */
 function applyHits(s: GameState, attacker: Figure, fig: Figure, hits: number, rng: Rng, fromFirearm: boolean) {
   if (hits <= 0 || !fig.alive) return;
-  const tt = effectiveType(fig, s.rank[fig.owner] ?? 1, (s as any)._frenzy);
+  const tt = effectiveType(fig, s.rank[fig.owner] ?? 1, boostFor(s, fig));
+  const armor = armorOf(s, fig, tt); // Weak Spot may lower a Legion figure's armor this round
   let saves = 0;
-  if (tt.isTrooper && tt.kevlariteDice && hits > tt.armor) {
+  if (tt.isTrooper && tt.kevlariteDice && hits > armor) {
     saves = rollDice(rng, tt.kevlariteDice, rankSaveColor(s.rank[fig.owner] ?? 1)).hits;
   }
-  const dmg = Math.max(0, hits - tt.armor - saves);
+  const dmg = Math.max(0, hits - armor - saves);
   if (dmg <= 0) return;
 
   const friendlyTrooper = fig.owner !== 'legion' && attacker.owner !== 'legion' && fig.uid !== attacker.uid;
@@ -696,7 +745,8 @@ function resolveCombat(s: GameState, attacker: Figure, target: Figure, ft: Figur
   const fromFirearm = w.kind === 'firearm';
 
   if (!w.area) {
-    const tt = effectiveType(target, s.rank[target.owner] ?? 1, (s as any)._frenzy);
+    const tt0 = effectiveType(target, s.rank[target.owner] ?? 1, boostFor(s, target));
+    const tt = { ...tt0, armor: armorOf(s, target, tt0) }; // Weak Spot lowers armor this round
     const out = resolveAttack(rng, ft, tt, target.woundsTaken, weaponIdx, rankSaveColor(s.rank[target.owner] ?? 1));
     s.lastRoll = {
       dice: out.dice, color: out.color, hits: out.hits, label: out.label,
@@ -796,28 +846,45 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
   const card = DOOM_CARDS[action.cardId];
   if (!card) return false;
 
-  const mine = () => s.figures.filter((g) => g.alive && g.owner === action.corp);
   switch (card.effect) {
-    case 'adrenaline':
+    case 'extra-actions': // Combat Frenzy / Movement Boost — two free extra Actions
       s.extraPool[action.corp] = (s.extraPool[action.corp] ?? 0) + 2;
       break;
-    case 'rally':
-      for (const g of mine()) { g.actionsLeft = effectiveType(g, s.rank[g.owner] ?? 1, (s as any)._frenzy).actions; g.actionsTaken = 0; }
-      break;
-    case 'secondwind':
-      for (const g of mine()) g.woundsTaken = Math.max(0, g.woundsTaken - 1);
-      break;
-    case 'medkit': {
+    case 'heal': { // Medicine Injector / Medic — heal 2 wounds on a chosen Doomtrooper
       const t = s.figures.find((g) => g.uid === action.targetUid && g.owner === action.corp && g.alive);
       if (!t) return false;
       t.woundsTaken = Math.max(0, t.woundsTaken - 2);
       break;
     }
+    case 'shield': // Combat Aura / Spectral Displacement — Legion can't attack you this round
+      (s.roundFx.shield ??= {})[action.corp] = true;
+      break;
+    case 'armor-down': { // Weak Spot — chosen Legion figure's Armor -1 this round
+      const t = s.figures.find((g) => g.uid === action.targetUid && g.owner === 'legion' && g.alive);
+      if (!t) return false;
+      (s.roundFx.armorDown ??= []).push(t.uid);
+      s.log.push(`  ${figureType(t.typeId).name}'s armor is weakened this round.`);
+      break;
+    }
+    case 'attack-legion': { // Control Defense System — 3 black dice at a chosen Legion figure
+      const t = s.figures.find((g) => g.uid === action.targetUid && g.owner === 'legion' && g.alive);
+      if (!t) return false;
+      const atk = s.figures.find((g) => g.alive && g.owner === action.corp); // your team scores the kill
+      const rng = rngFor(s);
+      const { hits } = rollDice(rng, 3, 'black');
+      s.log.push(`  Control Defense System fires 3 black dice at ${figureType(t.typeId).name} — ${hits} hit(s).`);
+      if (atk) applyHits(s, atk, t, hits, rng, false);
+      s.rngState = rng.serialize();
+      break;
+    }
+    case 'flavor': // narrative power — no automatic mechanic
+      s.log.push('  (Resolve this card\'s effect manually.)');
+      break;
     default:
       return false;
   }
   s.doomHands[action.corp] = hand.filter((c) => c !== action.cardId);
-  s.log.push(`${action.corp} plays Doomtrooper Card "${card.name}": ${card.blurb}`);
+  s.log.push(`${action.corp} plays Doomtrooper Card "${card.name}".`);
   return true;
 }
 

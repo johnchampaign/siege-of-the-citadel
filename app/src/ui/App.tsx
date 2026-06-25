@@ -550,13 +550,20 @@ const TurnAidsPanel: React.FC<{ state: GameState; corp: string; submit: (a: Acti
 
   function play(cardId: string) {
     const card = DOOM_CARDS[cardId];
-    if (card?.needsTarget) {
+    if (card?.needsTarget === 'trooper') {
       // auto-target the most-wounded friendly trooper
       const wounded = state.figures
         .filter((f) => f.owner === corp && f.alive && f.woundsTaken > 0)
         .sort((a, b) => b.woundsTaken - a.woundsTaken)[0];
       if (!wounded) return;
       submit({ type: 'play-doom-card', corp, cardId, targetUid: wounded.uid });
+    } else if (card?.needsTarget === 'legion') {
+      // auto-target the toughest living Legion figure (most worth weakening/striking)
+      const legion = state.figures
+        .filter((f) => f.owner === 'legion' && f.alive)
+        .sort((a, b) => figureType(b.typeId).armor - figureType(a.typeId).armor)[0];
+      if (!legion) return;
+      submit({ type: 'play-doom-card', corp, cardId, targetUid: legion.uid });
     } else {
       submit({ type: 'play-doom-card', corp, cardId });
     }
@@ -574,7 +581,9 @@ const TurnAidsPanel: React.FC<{ state: GameState; corp: string; submit: (a: Acti
           {hand.map((cid, i) => {
             const c = DOOM_CARDS[cid];
             if (!c) return null;
-            const targetable = !c.needsTarget || state.figures.some((f) => f.owner === corp && f.alive && f.woundsTaken > 0);
+            const targetable = !c.needsTarget
+              || (c.needsTarget === 'trooper' && state.figures.some((f) => f.owner === corp && f.alive && f.woundsTaken > 0))
+              || (c.needsTarget === 'legion' && state.figures.some((f) => f.owner === 'legion' && f.alive));
             return (
               <div key={cid + i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                 <button style={{ ...btn, fontSize: 11, padding: '3px 7px' }} disabled={!targetable} onClick={() => play(cid)} title={c.blurb}>▶ {c.name}</button>

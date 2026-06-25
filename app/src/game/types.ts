@@ -129,6 +129,16 @@ export interface PlayerSeat {
   isLegion: boolean;
 }
 
+/** Transient, single-round effects from Event / Doomtrooper cards. Reset at the
+ *  start of every round. */
+export interface RoundFx {
+  boost?: string[];                 // creature typeIds that get +1 Action this round
+  noFirearm?: boolean;              // Doomtroopers can't make firearm attacks this round
+  noMelee?: boolean;                // Doomtroopers can't make close-combat attacks this round
+  shield?: Record<string, boolean>; // corp -> its Doomtroopers can't be attacked this round
+  armorDown?: string[];             // figure uids whose Armor is -1 this round
+}
+
 export interface GameState {
   schema: number;
   missionId: string;
@@ -173,6 +183,7 @@ export interface GameState {
   usesEvents: boolean;
   eventDeck: string[];        // remaining Dark Legion event card ids
   pendingEvent: string | null; // event drawn this round, awaiting Legion resolution
+  roundFx: RoundFx;           // transient card effects for the current round
   setupDone: boolean;         // equipment selection finished
 
   win: WinCondition;
