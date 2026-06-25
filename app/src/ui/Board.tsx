@@ -216,6 +216,30 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
         <div key={'le' + i} style={markerStyle(px(e.x), py(e.y), '#a22')} title="Dark Legion reinforcement">▲</div>
       ))}
 
+      {/* exit squares — where a Doomtrooper leaves the board to win an escape
+          objective. Lit green once the exit is "open"; dim/locked until any
+          gating objective (e.g. 20 promotion points) is met. */}
+      {state.exits.map((e, i) => {
+        const pp = Object.values(state.promotion).reduce((a, b) => a + (b as number), 0);
+        const open =
+          state.win.kind === 'escape' ||
+          (state.win.kind === 'promotion' && state.win.escape && pp >= state.win.points);
+        return (
+          <div
+            key={'ex' + i}
+            title={open ? 'Exit — move a Doomtrooper here to escape off the board' : 'Exit (opens once the objective is met)'}
+            style={{
+              position: 'absolute', left: px(e.x), top: py(e.y), width: CELL, height: CELL,
+              boxSizing: 'border-box', border: `2px dashed ${open ? '#3c6' : '#667'}`,
+              background: open ? 'rgba(40,180,90,0.20)' : 'rgba(120,120,130,0.10)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: open ? '#7f9' : '#889', fontSize: CELL * 0.5, fontWeight: 700,
+              pointerEvents: 'none', zIndex: 2,
+            }}
+          >{open ? '⮐' : '🔒'}</div>
+        );
+      })}
+
       {/* figures */}
       {state.figures.filter((f) => f.alive).map((f) => {
         const ft = figureType(f.typeId);
