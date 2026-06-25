@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import type { GameState, Action, Figure } from '../game/types';
 import { figureType } from '../game/data';
+import { citadelSolidCells } from '../game/rules';
 import { useAssets } from './assets';
 import { DesignedFigure, DesignedTile } from './designed';
 
@@ -175,52 +176,38 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
           with four long thin arms ending in nodes), per the module's marker */}
       {state.citadel && (() => {
         const c = state.citadel;
-        const arm = c.arm ?? 0;
-        // In Module-art mode use the real Citadel marker from the loaded module,
-        // centered on the Citadel and sized so its arms span the cross.
+        // The Citadel is a 16x16 crosshair centred on the vertex (cx,cy) — the
+        // grid-line corner where four sectors meet.
+        const vx = px(c.cx); // the corner pixel = left edge of column cx
+        const vy = py(c.cy);
+        // In Module-art mode, drape the real marker over the full 16x16 footprint.
         const markerUrl = useArt ? assets.getMap('citadelmarker.png') : undefined;
         if (markerUrl) {
-          const span = (2 * arm + 2) * CELL; // tip-to-tip ~ the cross extent
-          const cx = px(c.x) + (c.w * CELL) / 2;
-          const cy = py(c.y) + (c.h * CELL) / 2;
+          const span = 16 * CELL;
           return (
             <img src={markerUrl} alt="Citadel" title="The Citadel" style={{
-              position: 'absolute', left: cx - span / 2, top: cy - span / 2,
+              position: 'absolute', left: vx - span / 2, top: vy - span / 2,
               width: span, height: span, pointerEvents: 'none',
             }} />
           );
         }
-        const bar: React.CSSProperties = {
-          position: 'absolute',
-          background: 'linear-gradient(180deg, #3a3a42, #111116)',
-          border: '1px solid #4a4a55',
-          boxSizing: 'border-box',
-          pointerEvents: 'none',
-        };
-        // small round node at an arm tip (cell cx,cy)
-        const node = (cx: number, cy: number) => (
-          <div key={`n${cx}-${cy}`} style={{
-            position: 'absolute', left: px(cx) + CELL * 0.2, top: py(cy) + CELL * 0.2,
-            width: CELL * 0.6, height: CELL * 0.6, borderRadius: '50%',
-            background: 'radial-gradient(circle, #44444c, #0c0c10)', border: '1px solid #55555f',
-            pointerEvents: 'none',
-          }} />
-        );
-        const cxCenter = px(c.x) + (c.w * CELL) / 2;
-        const cyCenter = py(c.y) + (c.h * CELL) / 2;
-        const disk = Math.max(c.w, c.h) * CELL * 1.35;
+        // Fallback: draw each solid square of the crosshair (matches collision).
+        const cells = citadelSolidCells(c);
         return (
           <>
-            <div style={{ ...bar, left: px(c.x), top: py(c.y - arm), width: c.w * CELL, height: (c.h + 2 * arm) * CELL }} />
-            <div style={{ ...bar, left: px(c.x - arm), top: py(c.y), width: (c.w + 2 * arm) * CELL, height: c.h * CELL }} />
-            {node(c.x, c.y - arm)}{node(c.x, c.y + arm)}{node(c.x - arm, c.y)}{node(c.x + arm, c.y)}
-            {/* central medallion with the Dark Legion mark */}
+            {cells.map(({ x, y }) => (
+              <div key={`cit${x}-${y}`} style={{
+                position: 'absolute', left: px(x), top: py(y), width: CELL, height: CELL,
+                background: 'linear-gradient(180deg, #3a3a42, #111116)',
+                border: '1px solid #4a4a55', boxSizing: 'border-box', pointerEvents: 'none',
+              }} />
+            ))}
+            {/* central medallion with the Dark Legion mark, on the corner */}
             <div style={{
-              position: 'absolute', left: cxCenter - disk / 2, top: cyCenter - disk / 2, width: disk, height: disk,
+              position: 'absolute', left: vx - CELL, top: vy - CELL, width: CELL * 2, height: CELL * 2,
               borderRadius: '50%', background: 'radial-gradient(circle, #2a2a31, #08080b)', border: '2px solid #5a5a66',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#b33', fontSize: disk * 0.5, fontWeight: 900, pointerEvents: 'none',
-              boxShadow: '0 0 8px #000',
+              color: '#b33', fontSize: CELL, fontWeight: 900, pointerEvents: 'none', boxShadow: '0 0 8px #000',
             }} title="The Citadel">✦</div>
           </>
         );

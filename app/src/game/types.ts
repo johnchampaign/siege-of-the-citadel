@@ -89,7 +89,7 @@ export interface MissionDef {
   objective: string;
   sectors: SectorPlacement[];
   walls: Wall[];
-  citadel?: { x: number; y: number; w: number; h: number; arm?: number };
+  citadel?: { cx: number; cy: number }; // center vertex (grid-line corner where sectors meet); 16x16 crosshair
   trooperEntrances: { x: number; y: number }[];
   legionEntrances: { x: number; y: number }[];
   exits?: { x: number; y: number }[];
@@ -136,7 +136,7 @@ export interface GameState {
   figures: Figure[];
   sectors: SectorPlacement[];
   walls: Wall[];
-  citadel?: { x: number; y: number; w: number; h: number; arm?: number };
+  citadel?: { cx: number; cy: number }; // center vertex (grid-line corner where sectors meet); 16x16 crosshair
   exits: { x: number; y: number }[];
   forceCards: ForceCardPlacement[];
   legionEntrances: { x: number; y: number }[];

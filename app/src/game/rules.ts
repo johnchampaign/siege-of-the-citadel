@@ -16,18 +16,46 @@ export function figureAt(state: GameState, x: number, y: number): Figure | undef
   return state.figures.find((f) => f.alive && f.x === x && f.y === y);
 }
 
-/** Is (x,y) inside the solid Citadel construction? It blocks movement and LOS.
- *  The Citadel is a cross (a black cross with the Dark Legion symbol at center):
- *  a central w×h body plus four arms of length `arm`. Without `arm` it is just
- *  the central rectangle. */
+// ---------- Citadel geometry ----------
+//
+// The Citadel is the big crosshair piece: 16x16 squares centred on a vertex
+// where four sectors meet (cx,cy is that grid-line corner). It has a 2x2 base
+// straddling the corner and four wings. Each wing is 8 squares long with the
+// pattern [3 solid · 2 gap · 3 solid] — an inner segment, a doorway, then the
+// outer node. Only the solid squares block movement and line of sight; the two
+// gap squares in each wing are open doorways.
+
+/** Distance index d (1..8) out from the centre along an arm → is it solid? */
+function armSolid(d: number): boolean {
+  return d >= 1 && d <= 8 && d !== 4 && d !== 5;
+}
+
+/** Is (x,y) a solid square of the Citadel crosshair? */
 export function inCitadel(state: GameState, x: number, y: number): boolean {
   const c = state.citadel;
   if (!c) return false;
-  if (!c.arm) return x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h;
-  // vertical bar (center + top + bottom arms) | horizontal bar (center + side arms)
-  const vert = x >= c.x && x < c.x + c.w && y >= c.y - c.arm && y < c.y + c.h + c.arm;
-  const horiz = y >= c.y && y < c.y + c.h && x >= c.x - c.arm && x < c.x + c.w + c.arm;
-  return vert || horiz;
+  const { cx, cy } = c;
+  // vertical bar occupies the two columns straddling the corner (cx-1, cx)
+  if (x === cx - 1 || x === cx) {
+    const d = y < cy ? cy - y : y - cy + 1; // 1..8 out from the corner line
+    if (armSolid(d)) return true;
+  }
+  // horizontal bar occupies the two rows straddling the corner (cy-1, cy)
+  if (y === cy - 1 || y === cy) {
+    const d = x < cx ? cx - x : x - cx + 1;
+    if (armSolid(d)) return true;
+  }
+  return false;
+}
+
+/** Enumerate the solid Citadel squares (for rendering the fallback shape). */
+export function citadelSolidCells(c: { cx: number; cy: number }): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  const fake = { citadel: c } as GameState;
+  for (let y = c.cy - 8; y <= c.cy + 7; y++)
+    for (let x = c.cx - 8; x <= c.cx + 7; x++)
+      if (inCitadel(fake, x, y)) out.push({ x, y });
+  return out;
 }
 
 const DIRS: Record<string, [number, number]> = {
