@@ -23,6 +23,7 @@ interface Props {
   useArt: boolean; // true = render loaded VASSAL module art; false = designed theme
   /** Effective weapon kinds of the selected figure, indexed by weaponIdx. */
   attackKinds: ('close' | 'firearm')[];
+  showCoords?: boolean; // overlay local cell coords + tile name (for wall-mapping)
   onSelect: (uid: string | null) => void;
   onMove: (x: number, y: number) => void;
   onAttack: (targetUid: string, weaponIdx: number) => void;
@@ -39,7 +40,7 @@ function boardBounds(s: GameState) {
   return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
 }
 
-export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useArt, attackKinds, onSelect, onMove, onAttack }) => {
+export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useArt, attackKinds, showCoords, onSelect, onMove, onAttack }) => {
   const assets = useAssets();
   const b = useMemo(() => boardBounds(state), [state.sectors]);
   const px = (gx: number) => (gx - b.minX) * CELL;
@@ -127,14 +128,30 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
                 width: CELL,
                 height: CELL,
                 boxSizing: 'border-box',
-                border: '1px solid rgba(255,255,255,0.08)',
+                border: showCoords ? '1px solid rgba(255,255,0,0.45)' : '1px solid rgba(255,255,255,0.08)',
                 background: isMove ? 'rgba(80,200,120,0.35)' : 'transparent',
                 cursor: isMove ? 'pointer' : 'default',
+                display: showCoords ? 'flex' : undefined,
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
-            />
+            >
+              {showCoords && (
+                <span style={{ fontSize: 10, color: '#ff0', fontWeight: 700, textShadow: '0 0 3px #000, 0 0 3px #000' }}>{lx},{ly}</span>
+              )}
+            </div>
           );
         }),
       )}
+
+      {/* tile-name banner per sector (wall-mapping aid) */}
+      {showCoords && state.sectors.map((sec) => (
+        <div key={'lbl' + sec.id} style={{
+          position: 'absolute', left: px(sec.ox) + 2, top: py(sec.oy) + 2,
+          background: 'rgba(0,0,0,0.75)', color: '#ff0', fontSize: 11, fontWeight: 800,
+          padding: '1px 5px', borderRadius: 3, pointerEvents: 'none', zIndex: 5,
+        }}>{sec.mapImage.replace('.jpg', '')}</div>
+      ))}
 
       {/* interior walls */}
       {state.walls.map((w, i) => {

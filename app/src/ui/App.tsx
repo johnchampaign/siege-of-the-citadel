@@ -31,6 +31,7 @@ export const App: React.FC = () => {
   }, [state]);
   const [theme, setTheme] = useState<'designed' | 'art'>('designed');
   const useArt = theme === 'art' && assets.loaded;
+  const [showCoords, setShowCoords] = useState(false);
   const [campaign, setCampaign] = useState<CampaignState | null>(() => loadCampaign());
   const [inCampaign, setInCampaign] = useState(false);
   const recordedRef = React.useRef(false);
@@ -142,13 +143,18 @@ export const App: React.FC = () => {
           weaponIdx={weaponIdx}
           useArt={useArt}
           attackKinds={selWeaponKinds}
+          showCoords={showCoords}
           onSelect={setSelected}
           onMove={doMove}
           onAttack={doAttack}
         />
         </div>
-        <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
-          Click a glowing figure · green squares = move · <span style={{ color: '#f66' }}>red ⚔ = melee</span> · <span style={{ color: '#6af' }}>blue 🎯 = ranged (firearm)</span>
+        <div style={{ marginTop: 8, fontSize: 12, color: '#888', display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>Click a glowing figure · green = move · <span style={{ color: '#f66' }}>red ⚔ melee</span> · <span style={{ color: '#6af' }}>blue 🎯 ranged</span></span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#cc0' }}>
+            <input type="checkbox" checked={showCoords} onChange={(e) => setShowCoords(e.target.checked)} />
+            Show grid coords (wall-mapping)
+          </label>
         </div>
       </div>
 
