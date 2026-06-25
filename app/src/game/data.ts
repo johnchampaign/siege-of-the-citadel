@@ -173,6 +173,8 @@ export function effectiveType(
       if (m.bonusKevlarite) kev += m.bonusKevlarite;
     }
     actions = Math.min(actions, 4); // a Doomtrooper may never take more than 4 actions in a turn
+    // Uncalibrated Targeter: fewer firearm dice for the rest of the mission.
+    if (fig.firearmDiceDown) weapons = weapons.map((w) => (w.kind === 'firearm' ? { ...w, dice: Math.max(1, w.dice - fig.firearmDiceDown!) } : w));
   } else if (frenzy) {
     actions += 1;
   }

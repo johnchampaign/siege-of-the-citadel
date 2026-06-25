@@ -81,52 +81,88 @@ export const EQUIPMENT: Record<string, EquipmentDef> = {
 // (teleport, mind-control, door placement, opponent sabotage) are tagged
 // 'flavor' — the card still plays and logs its full text, but applies no
 // automatic mechanic.
+// Each printed Doomtrooper card offers a choice of TWO powers when played.
 export type DoomEffect =
-  | 'extra-actions'   // +2 to your Extra Action pool (Combat Frenzy / Movement Boost)
-  | 'heal'            // heal 2 wounds on a chosen Doomtrooper (Medicine Injector / Medic)
+  | 'extra-actions'   // +2 to your Extra Action pool
+  | 'heal'            // heal 2 wounds on a chosen Doomtrooper
   | 'shield'          // the Dark Legion may not attack your Doomtroopers this round
-  | 'armor-down'      // a chosen Legion figure's Armor is lowered by 1 this round (Weak Spot)
-  | 'attack-legion'   // strike a chosen Legion figure with 3 black dice (Control Defense System)
-  | 'reroll'          // re-roll one die in each of your attacks this round (Heroic Luck)
-  | 'phase'           // your Doomtroopers move through walls this round (Molecular Phasing)
-  | 'teleport'        // teleport one of your Doomtroopers to a chosen square (Limited / Faulty)
-  | 'flavor';         // narrative / manual-resolve power, no automatic effect
+  | 'armor-down'      // a chosen Legion figure's Armor is lowered by 1 this round
+  | 'attack-legion'   // strike a chosen Legion figure with 3 black dice
+  | 'reroll'          // re-roll one die in each of your attacks this round
+  | 'phase'           // your Doomtroopers move through walls this round
+  | 'teleport'        // teleport one of your Doomtroopers to another sector
+  | 'move-force-card' // move a face-down Force Card to an adjacent sector
+  | 'mind-control'    // a chosen Legion figure loses its next 2 actions (stunned)
+  | 'pp-steal'        // take 5 Promotion Points from another corporation
+  | 'card-steal'      // take a random Doomtrooper Card from another corporation
+  | 'card-discard'    // discard a random Doomtrooper Card from another corporation
+  | 'debuff-move'     // a chosen enemy Doomtrooper moves 1 less per round (mission)
+  | 'debuff-firearm'  // a chosen enemy Doomtrooper fires 1 fewer die (mission)
+  | 'no-melee-vs'     // a corporation can't close-combat a creature type (mission)
+  | 'cap-1'           // a corporation's figures may take only 1 action this round
+  | 'cap-total-2'     // a corporation's pair may take 2 actions total this round
+  | 'lose-extra'      // a corporation loses 2 from its Extra Action pool
+  | 'door'            // place a wall (door) blocking the Legion near you
+  | 'dud'             // negate the next Legion firearm hit on you this round
+  | 'false-orders';   // disrupt another corporation's pair (they lose actions)
+
+export type DoomTarget = 'self-trooper' | 'legion' | 'enemy-trooper' | 'enemy-corp' | 'teleport';
+
+export interface DoomPower {
+  name: string;
+  effect: DoomEffect;
+  target?: DoomTarget;     // who/what it needs; omitted = no target / self-team
+  scope?: 'adjacent' | 'any'; // teleport range
+  vs?: string[];           // creature typeIds (for no-melee-vs)
+}
 
 export interface DoomCardDef {
   id: string;
-  name: string;
-  blurb: string;
-  effect: DoomEffect;
-  needsTarget?: 'trooper' | 'legion';
+  name: string;            // "Power A / Power B"
+  blurb: string;           // full faithful text of both powers
+  powers: [DoomPower, DoomPower];
 }
 
 export const DOOM_CARDS: Record<string, DoomCardDef> = {
-  ci_hl:   { id: 'ci_hl',   name: 'Command Interference / Hurt Leg', effect: 'flavor',
-    blurb: 'Command Interference: move a Force Card of your choice to an adjacent sector (don\'t look at it; reveal it if that sector holds Doomtroopers). / Hurt Leg: a chosen Doomtrooper moves one square less per Round for the rest of the mission.' },
-  cv_si:   { id: 'cv_si',   name: 'Commanding Voice / Steal Initiative', effect: 'flavor',
-    blurb: 'Commanding Voice: take command of a Legion figure and perform two Actions with it, then control reverts. / Steal Initiative: take a random Doomtrooper Card from any player.' },
-  cf_cr:   { id: 'cf_cr',   name: 'Combat Frenzy / Combat Report', effect: 'extra-actions',
-    blurb: 'Combat Frenzy: spend two free extra Actions on your pair this Combat Round. / Combat Report: take 5 Promotion Points from another player.' },
-  ca_lf:   { id: 'ca_lf',   name: 'Combat Aura / Legionnaire Fear', effect: 'shield',
-    blurb: 'Combat Aura: a force field demoralises the Legion — it may not attack your Doomtroopers this Round. / Legionnaire Fear: a chosen pair may not attack Legionnaires in close combat for the rest of the mission.' },
-  cds_rcd: { id: 'cds_rcd', name: 'Control Defense System / Remote Controlled Door', effect: 'attack-legion', needsTarget: 'legion',
-    blurb: 'Control Defense System: seize a defense turret — attack one chosen Legion figure with three black dice. / Remote Controlled Door: place a door across a corridor up to two squares wide.' },
-  hl_nf:   { id: 'hl_nf',   name: 'Heroic Luck / Necrofear', effect: 'reroll',
-    blurb: 'Heroic Luck: re-roll one die in each of your remaining attacks this Combat Round. / Necrofear: a chosen pair may not attack Necromutants in close combat for the rest of the mission.' },
-  lt_dr:   { id: 'lt_dr',   name: 'Limited Teleportation / Dud Round', effect: 'flavor',
-    blurb: 'Limited Teleportation: teleport one of your Doomtroopers to an adjacent sector. / Dud Round: played after a successful firearm attack on a chosen pair — that attack failed (faulty ammo).' },
-  mi_cn:   { id: 'mi_cn',   name: 'Medicine Injector / Combat Neurosis', effect: 'heal', needsTarget: 'trooper',
-    blurb: 'Medicine Injector: an auto-injector reduces one of your Doomtroopers\' wounds by 2. / Combat Neurosis: a chosen pair may perform only one Action each this Round (no extra Actions).' },
-  m_ut:    { id: 'm_ut',    name: 'Medic / Uncalibrated Targeter', effect: 'heal', needsTarget: 'trooper',
-    blurb: 'Medic: a Combat Medic Unit heals 2 wounds on one of your Doomtroopers. / Uncalibrated Targeter: a chosen Doomtrooper fires with dice two Ranks lower for the rest of the mission.' },
-  mp_ce:   { id: 'mp_ce',   name: 'Molecular Phasing / Coordinating Error', effect: 'phase',
-    blurb: 'Molecular Phasing: your Doomtroopers may move through walls this Combat Round (not between stair levels). / Coordinating Error: a chosen pair immediately loses 2 extra Actions.' },
-  mb_ft:   { id: 'mb_ft',   name: 'Movement Boost / Faulty Teleportation', effect: 'extra-actions',
-    blurb: 'Movement Boost: an energy injector gives your Doomtroopers a free movement action each, immediately. / Faulty Teleportation: a chosen Doomtrooper is teleported to a sector of your choice.' },
-  sd_fo:   { id: 'sd_fo',   name: 'Spectral Displacement / False Orders', effect: 'shield',
-    blurb: 'Spectral Displacement: your armor hides your Doomtroopers from sight — no attacks may be made against them this Combat Round. / False Orders: immediately perform two movement Actions with another player\'s pair.' },
-  ws_li:   { id: 'ws_li',   name: 'Weak Spot / Lost Initiative', effect: 'armor-down', needsTarget: 'legion',
-    blurb: 'Weak Spot: expose a flaw in a chosen Legion figure\'s armor — its Armor is lowered by 1 when your Doomtroopers attack this Round. / Lost Initiative: discard a random Doomtrooper Card from a chosen player.' },
+  ci_hl: { id: 'ci_hl', name: 'Command Interference / Hurt Leg',
+    powers: [{ name: 'Command Interference', effect: 'move-force-card' }, { name: 'Hurt Leg', effect: 'debuff-move', target: 'enemy-trooper' }],
+    blurb: 'Command Interference: move a face-down Force Card to an adjacent sector. / Hurt Leg: a chosen enemy Doomtrooper moves one square less per Round for the rest of the mission.' },
+  cv_si: { id: 'cv_si', name: 'Commanding Voice / Steal Initiative',
+    powers: [{ name: 'Commanding Voice', effect: 'mind-control', target: 'legion' }, { name: 'Steal Initiative', effect: 'card-steal', target: 'enemy-corp' }],
+    blurb: 'Commanding Voice: seize a Legion figure — it loses its next two Actions. / Steal Initiative: take a random Doomtrooper Card from another corporation.' },
+  cf_cr: { id: 'cf_cr', name: 'Combat Frenzy / Combat Report',
+    powers: [{ name: 'Combat Frenzy', effect: 'extra-actions' }, { name: 'Combat Report', effect: 'pp-steal', target: 'enemy-corp' }],
+    blurb: 'Combat Frenzy: spend two free extra Actions on your pair this Combat Round. / Combat Report: take 5 Promotion Points from another corporation.' },
+  ca_lf: { id: 'ca_lf', name: 'Combat Aura / Legionnaire Fear',
+    powers: [{ name: 'Combat Aura', effect: 'shield' }, { name: 'Legionnaire Fear', effect: 'no-melee-vs', target: 'enemy-corp', vs: ['legionnaire'] }],
+    blurb: 'Combat Aura: the Legion may not attack your Doomtroopers this Round. / Legionnaire Fear: a chosen corporation may not close-combat Legionnaires for the rest of the mission.' },
+  cds_rcd: { id: 'cds_rcd', name: 'Control Defense System / Remote Controlled Door',
+    powers: [{ name: 'Control Defense System', effect: 'attack-legion', target: 'legion' }, { name: 'Remote Controlled Door', effect: 'door' }],
+    blurb: 'Control Defense System: attack one chosen Legion figure with three black dice. / Remote Controlled Door: seal a wall between you and the nearest Legion figure.' },
+  hl_nf: { id: 'hl_nf', name: 'Heroic Luck / Necrofear',
+    powers: [{ name: 'Heroic Luck', effect: 'reroll' }, { name: 'Necrofear', effect: 'no-melee-vs', target: 'enemy-corp', vs: ['necromutant'] }],
+    blurb: 'Heroic Luck: re-roll one die in each of your attacks this Combat Round. / Necrofear: a chosen corporation may not close-combat Necromutants for the rest of the mission.' },
+  lt_dr: { id: 'lt_dr', name: 'Limited Teleportation / Dud Round',
+    powers: [{ name: 'Limited Teleportation', effect: 'teleport', target: 'teleport', scope: 'adjacent' }, { name: 'Dud Round', effect: 'dud' }],
+    blurb: 'Limited Teleportation: teleport one of your Doomtroopers to an adjacent sector. / Dud Round: the next Legion firearm hit on your team this Round fails (faulty ammo).' },
+  mi_cn: { id: 'mi_cn', name: 'Medicine Injector / Combat Neurosis',
+    powers: [{ name: 'Medicine Injector', effect: 'heal', target: 'self-trooper' }, { name: 'Combat Neurosis', effect: 'cap-1', target: 'enemy-corp' }],
+    blurb: 'Medicine Injector: reduce one of your Doomtroopers\' wounds by 2. / Combat Neurosis: a chosen corporation\'s figures may perform only one Action each this Round.' },
+  m_ut: { id: 'm_ut', name: 'Medic / Uncalibrated Targeter',
+    powers: [{ name: 'Medic', effect: 'heal', target: 'self-trooper' }, { name: 'Uncalibrated Targeter', effect: 'debuff-firearm', target: 'enemy-trooper' }],
+    blurb: 'Medic: heal 2 wounds on one of your Doomtroopers. / Uncalibrated Targeter: a chosen enemy Doomtrooper fires with one fewer die for the rest of the mission.' },
+  mp_ce: { id: 'mp_ce', name: 'Molecular Phasing / Coordinating Error',
+    powers: [{ name: 'Molecular Phasing', effect: 'phase' }, { name: 'Coordinating Error', effect: 'lose-extra', target: 'enemy-corp' }],
+    blurb: 'Molecular Phasing: your Doomtroopers move through walls this Combat Round. / Coordinating Error: a chosen corporation loses 2 from its Extra Action pool.' },
+  mb_ft: { id: 'mb_ft', name: 'Movement Boost / Faulty Teleportation',
+    powers: [{ name: 'Movement Boost', effect: 'extra-actions' }, { name: 'Faulty Teleportation', effect: 'teleport', target: 'teleport', scope: 'any' }],
+    blurb: 'Movement Boost: a free movement action for your Doomtroopers (two extra Actions). / Faulty Teleportation: teleport one of your Doomtroopers to any sector.' },
+  sd_fo: { id: 'sd_fo', name: 'Spectral Displacement / False Orders',
+    powers: [{ name: 'Spectral Displacement', effect: 'shield' }, { name: 'False Orders', effect: 'false-orders', target: 'enemy-corp' }],
+    blurb: 'Spectral Displacement: no attacks may be made against your Doomtroopers this Combat Round. / False Orders: another corporation\'s pair is misdirected and loses 2 actions.' },
+  ws_li: { id: 'ws_li', name: 'Weak Spot / Lost Initiative',
+    powers: [{ name: 'Weak Spot', effect: 'armor-down', target: 'legion' }, { name: 'Lost Initiative', effect: 'card-discard', target: 'enemy-corp' }],
+    blurb: 'Weak Spot: a chosen Legion figure\'s Armor is lowered by 1 when you attack this Round. / Lost Initiative: discard a random Doomtrooper Card from another corporation.' },
 };
 
 // The 13-card Doomtrooper deck (one of each, as in the 1993 box).
@@ -199,7 +235,9 @@ export type EventEffect =
   | 'direct-damage'   // strike a Doomtrooper with 3 black dice (Temporary Defense)
   | 'reroll-melee'    // all Legion figures re-roll one die in close combat (Close Combat Frenzy)
   | 'reroll-all'      // all Legion figures re-roll one die in every attack (Dark Energy Wave)
-  | 'flavor';         // narrative power not auto-modelled (teleport, action-throttle)
+  | 'pair-cap'        // a corporation's pair may take only 2 actions total this round (Misinterpreted Orders)
+  | 'legion-teleport' // a Legion figure teleports next to a Doomtrooper (Dark Teleportation)
+  | 'flavor';         // narrative power not auto-modelled
 
 export interface EventDef {
   id: string;
@@ -222,11 +260,11 @@ export const EVENTS: Record<string, EventDef> = {
     blurb: 'All Legion figures re-roll one attack die in every attack this Combat Round. Reinforcements: 1 Necromutant, 2 Legionnaires.', spawn: ['necromutant', 'legionnaire', 'legionnaire'] },
   darkinfluence: { id: 'darkinfluence', name: 'Dark Influence', effect: 'boost', boost: ['legionnaire', 'necromutant', 'centurion', 'razide', 'nepharite', 'ezoghoul', 'alakhai'],
     blurb: 'The Legion senses the Dark Symmetry — the Legion surges with extra Actions this round. Reinforcements: 2 Legionnaires.', spawn: ['legionnaire', 'legionnaire'] },
-  darktele:      { id: 'darktele', name: 'Dark Teleportation', effect: 'flavor',
+  darktele:      { id: 'darktele', name: 'Dark Teleportation', effect: 'legion-teleport',
     blurb: 'This Combat Round the Legion may move one figure to any square on the board instead of a normal move. Reinforcements: 1 Razide.', spawn: ['razide'] },
   mentalblock:   { id: 'mentalblock', name: 'Mental Block', effect: 'no-firearm',
     blurb: 'The Lord of the Citadel blocks the Doomtroopers — none may attack with firearms this round. Reinforcements: 2 Centurions.', spawn: ['centurion', 'centurion'] },
-  misorders:     { id: 'misorders', name: 'Misinterpreted Orders', effect: 'flavor',
+  misorders:     { id: 'misorders', name: 'Misinterpreted Orders', effect: 'pair-cap',
     blurb: 'A chosen Doomtrooper pair may use only two Actions between them this round. Reinforcements: 3 Legionnaires.', spawn: ['legionnaire', 'legionnaire', 'legionnaire'] },
   necrofrenzy:   { id: 'necrofrenzy', name: 'Necrofrenzy', effect: 'boost', boost: ['necromutant', 'centurion'],
     blurb: 'A wave of Necroenergy — all Necromutants and Centurions gain one extra Action this round. Reinforcements: 2 Necromutants, 1 Legionnaire.', spawn: ['necromutant', 'necromutant', 'legionnaire'] },

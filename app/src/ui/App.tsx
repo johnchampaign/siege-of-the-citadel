@@ -334,7 +334,7 @@ export const App: React.FC = () => {
         </Panel>
 
         {state.phase === 'play' && !isLegionTurn && state.activeSeat && (
-          <TurnAidsPanel state={state} corp={state.activeSeat} submit={submit} />
+          <TurnAidsPanel state={state} corp={state.activeSeat} submit={submit} legal={legal} />
         )}
 
         {selFig && selType && (
@@ -542,32 +542,16 @@ const PlayCount: React.FC = () => {
   return <span style={{ color: '#777', fontSize: 11, letterSpacing: 0 }}>· {count.toLocaleString()} games played</span>;
 };
 
-const TurnAidsPanel: React.FC<{ state: GameState; corp: string; submit: (a: Action) => void }> = ({ state, corp, submit }) => {
+const TurnAidsPanel: React.FC<{ state: GameState; corp: string; submit: (a: Action) => void; legal: Action[] }> = ({ state, corp, submit, legal }) => {
   const pool = state.extraPool[corp] ?? 0;
   const hand = state.doomHands[corp] ?? [];
   const secId = state.secondary[corp];
   const sec = secId && secId !== 'hidden' ? SECONDARY_MISSIONS[secId] : null;
 
-  function play(cardId: string) {
-    const card = DOOM_CARDS[cardId];
-    if (card?.needsTarget === 'trooper') {
-      // auto-target the most-wounded friendly trooper
-      const wounded = state.figures
-        .filter((f) => f.owner === corp && f.alive && f.woundsTaken > 0)
-        .sort((a, b) => b.woundsTaken - a.woundsTaken)[0];
-      if (!wounded) return;
-      submit({ type: 'play-doom-card', corp, cardId, targetUid: wounded.uid });
-    } else if (card?.needsTarget === 'legion') {
-      // auto-target the toughest living Legion figure (most worth weakening/striking)
-      const legion = state.figures
-        .filter((f) => f.owner === 'legion' && f.alive)
-        .sort((a, b) => figureType(b.typeId).armor - figureType(a.typeId).armor)[0];
-      if (!legion) return;
-      submit({ type: 'play-doom-card', corp, cardId, targetUid: legion.uid });
-    } else {
-      submit({ type: 'play-doom-card', corp, cardId });
-    }
-  }
+  // Which (cardId, power) combos the engine currently allows.
+  const playable = new Set(
+    legal.filter((a) => a.type === 'play-doom-card').map((a: any) => `${a.cardId}:${a.power}`),
+  );
 
   return (
     <Panel title={`${corp} — Turn Resources`}>
@@ -577,17 +561,23 @@ const TurnAidsPanel: React.FC<{ state: GameState; corp: string; submit: (a: Acti
       </div>
       {hand.length > 0 ? (
         <div>
-          <div style={{ fontSize: 12, color: '#aaa', marginBottom: 4 }}>Doomtrooper Cards (one-shot):</div>
+          <div style={{ fontSize: 12, color: '#aaa', marginBottom: 4 }}>Doomtrooper Cards (choose one power):</div>
           {hand.map((cid, i) => {
             const c = DOOM_CARDS[cid];
             if (!c) return null;
-            const targetable = !c.needsTarget
-              || (c.needsTarget === 'trooper' && state.figures.some((f) => f.owner === corp && f.alive && f.woundsTaken > 0))
-              || (c.needsTarget === 'legion' && state.figures.some((f) => f.owner === 'legion' && f.alive));
             return (
-              <div key={cid + i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <button style={{ ...btn, fontSize: 11, padding: '3px 7px' }} disabled={!targetable} onClick={() => play(cid)} title={c.blurb}>▶ {c.name}</button>
-                <span style={{ fontSize: 11, color: '#999' }}>{c.blurb}</span>
+              <div key={cid + i} style={{ marginBottom: 6, borderLeft: '2px solid #444', paddingLeft: 6 }}>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {c.powers.map((p, pi) => {
+                    const ok = playable.has(`${cid}:${pi}`);
+                    return (
+                      <button key={pi} style={{ ...btn, fontSize: 11, padding: '3px 7px', opacity: ok ? 1 : 0.4 }}
+                        disabled={!ok} onClick={() => submit({ type: 'play-doom-card', corp, cardId: cid, power: pi })}
+                        title={ok ? '' : 'No valid target right now'}>▶ {p.name}</button>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: 10, color: '#888', marginTop: 1 }}>{c.blurb}</div>
               </div>
             );
           })}

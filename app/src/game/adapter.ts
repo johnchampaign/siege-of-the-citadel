@@ -4,6 +4,8 @@ import type { GameState, Action, Figure, MissionDef, PlayerSeat } from './types'
 import { figureType, effectiveType, extraActionPoolSize, CORP_TROOPERS } from './data';
 import { MISSIONS, FORCE_CARDS } from './missions';
 import { EVENTS, EQUIPMENT, DOOM_CARDS, SECONDARY_MISSIONS, buildEventDeck, dealDoomHands, assignSecondaries } from './cards';
+import type { DoomPower } from './cards';
+import type { SectorPlacement } from './types';
 import {
   onBoard, figureAt, canStep, dist, hasLineOfSight, resolveAttack, rankSaveColor, rollDice, inCitadel,
   wallBlocksStep,
@@ -105,6 +107,7 @@ export function createInitialState(opts: NewGameOpts): GameState {
     eventDeck,
     pendingEvent: null,
     roundFx: {},
+    missionFx: {},
     setupDone: false,
     win: mission.win,
     winners: null,
@@ -122,6 +125,15 @@ function clone(s: GameState): GameState {
 /** Can this figure begin another action — from its base actions, or (troopers
  *  only) by drawing from the team Extra Action pool up to the 4-action cap? */
 function canTakeAction(s: GameState, f: Figure): boolean {
+  // Combat Neurosis / Misinterpreted Orders cap a corporation's actions this round.
+  const cap = s.roundFx.cap?.[f.owner];
+  if (cap) {
+    if (cap.perFig != null && (f.actionsTaken ?? 0) >= cap.perFig) return false;
+    if (cap.total != null) {
+      const used = s.figures.filter((g) => g.owner === f.owner).reduce((n, g) => n + (g.actionsTaken ?? 0), 0);
+      if (used >= cap.total) return false;
+    }
+  }
   if (f.actionsLeft > 0) return true;
   const ft = figureType(f.typeId);
   return ft.isTrooper && (s.extraPool[f.owner] ?? 0) > 0 && (f.actionsTaken ?? 0) < 4;
@@ -139,8 +151,9 @@ function rngFor(s: GameState): Rng {
 
 function moveRange(s: GameState, fig: Figure): number {
   const ft = figureType(fig.typeId);
-  // Mishima troopers move 4; everyone else 3.
-  return ft.faction === 'Mishima' && ft.isTrooper ? 4 : 3;
+  // Mishima troopers move 4; everyone else 3. Hurt Leg slows a figure.
+  const base = ft.faction === 'Mishima' && ft.isTrooper ? 4 : 3;
+  return Math.max(1, base - (fig.moveDebuff ?? 0));
 }
 
 /** stepsLeft for an in-progress move is tracked on a side-table keyed by uid,
@@ -208,6 +221,32 @@ function applyEventEffect(s: GameState, ev: { effect: string; boost?: string[] }
     case 'no-melee': s.roundFx.noMelee = true; break;
     case 'reroll-melee': s.roundFx.reroll = { legion: 'melee' }; break;
     case 'reroll-all': s.roundFx.reroll = { legion: 'all' }; break;
+    case 'pair-cap': { // Misinterpreted Orders: a corporation's pair gets 2 actions total
+      const corp = Object.keys(s.doomHands).filter((c) => s.figures.some((f) => f.alive && f.owner === c))
+        .sort((a, b) => (s.promotion[b] ?? 0) - (s.promotion[a] ?? 0))[0];
+      if (corp) { (s.roundFx.cap ??= {})[corp] = { ...(s.roundFx.cap?.[corp]), total: 2 }; s.log.push(`  ${corp}'s pair may take only 2 actions this round.`); }
+      break;
+    }
+    case 'legion-teleport': { // Dark Teleportation: a Legion figure blinks next to a Doomtrooper
+      const troopers = s.figures.filter((f) => f.alive && f.owner !== 'legion');
+      const legion = s.figures.filter((f) => f.alive && f.owner === 'legion'
+        && !troopers.some((t) => dist(f.x, f.y, t.x, t.y) === 1));
+      if (troopers.length && legion.length) {
+        // the legion figure nearest a trooper, moved to an empty square beside it
+        let best: { f: Figure; x: number; y: number; d: number } | null = null;
+        for (const f of legion) for (const t of troopers) {
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            const x = t.x + dx, y = t.y + dy;
+            if (!onBoard(s, x, y) || figureAt(s, x, y) || inCitadel(s, x, y)) continue;
+            const d = dist(f.x, f.y, x, y);
+            if (!best || d < best.d) best = { f, x, y, d };
+          }
+        }
+        if (best) { best.f.x = best.x; best.f.y = best.y; s.log.push(`  ${figureType(best.f.typeId).name} teleports into the fight.`); }
+      }
+      break;
+    }
     case 'direct-damage': {
       // Strike one Doomtrooper with three black dice (auto-targets the most wounded).
       const target = s.figures.filter((f) => f.alive && f.owner !== 'legion')
@@ -500,18 +539,14 @@ export const adapter: GameAdapter<GameState, Action, string> = {
     }
     if (s.phase === 'over' || actor !== s.activeSeat) return actions;
 
-    // Doomtrooper Cards may be played on your turn.
+    // Doomtrooper Cards may be played on your turn — either of a card's two
+    // powers, if that power has a valid (auto-resolved) target.
     for (const cardId of s.doomHands[actor] ?? []) {
       const card = DOOM_CARDS[cardId];
-      if (card?.needsTarget === 'trooper') {
-        for (const t of s.figures.filter((g) => g.alive && g.owner === actor && g.woundsTaken > 0))
-          actions.push({ type: 'play-doom-card', corp: actor, cardId, targetUid: t.uid });
-      } else if (card?.needsTarget === 'legion') {
-        for (const t of s.figures.filter((g) => g.alive && g.owner === 'legion'))
-          actions.push({ type: 'play-doom-card', corp: actor, cardId, targetUid: t.uid });
-      } else {
-        actions.push({ type: 'play-doom-card', corp: actor, cardId });
-      }
+      if (!card) continue;
+      card.powers.forEach((p, power) => {
+        if (powerPlayable(s, actor, p)) actions.push({ type: 'play-doom-card', corp: actor, cardId, power });
+      });
     }
 
     const mine = s.figures.filter((f) => f.alive && f.owner === actor);
@@ -538,8 +573,10 @@ export const adapter: GameAdapter<GameState, Action, string> = {
           ft.weapons.forEach((w, idx) => {
             const d = dist(f.x, f.y, target.x, target.y);
             if (w.kind === 'close') {
-              // Close Combat Phobia stops Doomtrooper melee this round.
+              // Close Combat Phobia stops Doomtrooper melee this round; Legionnaire
+              // Fear / Necrofear bar melee vs a creature type for the mission.
               if (trooperActor && s.roundFx.noMelee) return;
+              if (trooperActor && s.missionFx.noMeleeVs?.[f.owner]?.includes(target.typeId)) return;
               // close combat needs an adjacent square with no wall between (you
               // can't reach a hand weapon through a wall).
               if (d === 1 && !wallBlocksStep(s.walls, f.x, f.y, target.x, target.y))
@@ -673,6 +710,7 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       if (s.roundFx.shield?.[target.owner]) return { state, ok: false, reason: 'target is shielded this round' };
       if (w.kind === 'close') {
         if (trooperAtk && s.roundFx.noMelee) return { state, ok: false, reason: 'close combat blocked this round' };
+        if (trooperAtk && s.missionFx.noMeleeVs?.[f.owner]?.includes(target.typeId)) return { state, ok: false, reason: 'fear prevents this close combat' };
         if (d !== 1) return { state, ok: false, reason: 'not adjacent' };
         if (wallBlocksStep(s.walls, f.x, f.y, target.x, target.y))
           return { state, ok: false, reason: 'wall blocks close combat' };
@@ -719,6 +757,12 @@ function loseDoomtrooper(s: GameState, owner: string) {
  *  handles kill scoring, friendly-fire penalty, and firearm-kill tallies. */
 function applyHits(s: GameState, attacker: Figure, fig: Figure, hits: number, rng: Rng, fromFirearm: boolean) {
   if (hits <= 0 || !fig.alive) return;
+  // Dud Round: the next Legion firearm hit on this team fizzles (faulty ammo).
+  if (fromFirearm && attacker.owner === 'legion' && fig.owner !== 'legion' && s.roundFx.dud?.[fig.owner]) {
+    delete s.roundFx.dud[fig.owner];
+    s.log.push(`  Dud Round — ${figureType(attacker.typeId).name}'s shot misfires!`);
+    return;
+  }
   const tt = effectiveType(fig, s.rank[fig.owner] ?? 1, boostFor(s, fig));
   const armor = armorOf(s, fig, tt); // Weak Spot may lower a Legion figure's armor this round
   let saves = 0;
@@ -853,59 +897,198 @@ function collinear(ax: number, ay: number, bx: number, by: number, px: number, p
 }
 
 // ---------- Doomtrooper Cards ----------
+// ---- Doomtrooper Card target auto-resolution ----
+
+/** Pick another corporation (with living figures) to target with a sabotage power. */
+function enemyCorpOf(s: GameState, corp: string): string | null {
+  return Object.keys(s.doomHands)
+    .filter((c) => c !== corp && s.figures.some((f) => f.alive && f.owner === c))
+    .sort((a, b) => (s.promotion[b] ?? 0) - (s.promotion[a] ?? 0))[0] ?? null; // hit the leader
+}
+/** Is a given power playable right now (does it have a valid auto-target)? */
+function powerPlayable(s: GameState, corp: string, p: DoomPower): boolean {
+  switch (p.target) {
+    case 'self-trooper': return s.figures.some((f) => f.alive && f.owner === corp && f.woundsTaken > 0);
+    case 'legion': return s.figures.some((f) => f.alive && f.owner === 'legion');
+    case 'enemy-corp': return enemyCorpOf(s, corp) != null;
+    case 'enemy-trooper': return s.figures.some((f) => f.alive && f.owner !== 'legion' && f.owner !== corp);
+    case 'teleport': return s.figures.some((f) => f.alive && f.owner === corp);
+    default:
+      if (p.effect === 'move-force-card') return s.forceCards.some((f) => !f.revealed);
+      if (p.effect === 'door') return s.figures.some((f) => f.alive && f.owner === corp) && s.figures.some((f) => f.alive && f.owner === 'legion');
+      return true;
+  }
+}
+
+/** Empty, on-board, non-Citadel square in `sec` nearest a living Legion figure. */
+function teleportDest(s: GameState, sec: SectorPlacement): { x: number; y: number } | null {
+  const legion = s.figures.filter((f) => f.alive && f.owner === 'legion');
+  let best: { x: number; y: number } | null = null; let bestD = Infinity;
+  for (let y = sec.oy; y < sec.oy + sec.size; y++)
+    for (let x = sec.ox; x < sec.ox + sec.size; x++) {
+      if (figureAt(s, x, y) || inCitadel(s, x, y)) continue;
+      const d = legion.length ? Math.min(...legion.map((l) => dist(x, y, l.x, l.y))) : 0;
+      if (d < bestD) { bestD = d; best = { x, y }; }
+    }
+  return best;
+}
+
 function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-card' }>, actor: string): boolean {
   if (s.phase !== 'play' || actor !== s.activeSeat || action.corp !== actor) return false;
-  const hand = s.doomHands[action.corp];
+  const corp = action.corp;
+  const hand = s.doomHands[corp];
   if (!hand || !hand.includes(action.cardId)) return false;
   const card = DOOM_CARDS[action.cardId];
-  if (!card) return false;
+  const power = card?.powers[action.power];
+  if (!power || !powerPlayable(s, corp, power)) return false;
+  const rng = rngFor(s);
 
-  switch (card.effect) {
-    case 'extra-actions': // Combat Frenzy / Movement Boost — two free extra Actions
-      s.extraPool[action.corp] = (s.extraPool[action.corp] ?? 0) + 2;
+  switch (power.effect) {
+    case 'extra-actions':
+      s.extraPool[corp] = (s.extraPool[corp] ?? 0) + 2;
       break;
-    case 'heal': { // Medicine Injector / Medic — heal 2 wounds on a chosen Doomtrooper
-      const t = s.figures.find((g) => g.uid === action.targetUid && g.owner === action.corp && g.alive);
+    case 'heal': {
+      const t = s.figures.filter((g) => g.alive && g.owner === corp && g.woundsTaken > 0).sort((a, b) => b.woundsTaken - a.woundsTaken)[0];
       if (!t) return false;
       t.woundsTaken = Math.max(0, t.woundsTaken - 2);
       break;
     }
-    case 'shield': // Combat Aura / Spectral Displacement — Legion can't attack you this round
-      (s.roundFx.shield ??= {})[action.corp] = true;
-      break;
-    case 'armor-down': { // Weak Spot — chosen Legion figure's Armor -1 this round
-      const t = s.figures.find((g) => g.uid === action.targetUid && g.owner === 'legion' && g.alive);
-      if (!t) return false;
+    case 'shield': (s.roundFx.shield ??= {})[corp] = true; break;
+    case 'reroll': (s.roundFx.reroll ??= {}).team = corp; break;
+    case 'phase': s.roundFx.phase = corp; break;
+    case 'dud': (s.roundFx.dud ??= {})[corp] = true; break;
+    case 'armor-down': {
+      const t = toughestLegion(s); if (!t) return false;
       (s.roundFx.armorDown ??= []).push(t.uid);
       s.log.push(`  ${figureType(t.typeId).name}'s armor is weakened this round.`);
       break;
     }
-    case 'attack-legion': { // Control Defense System — 3 black dice at a chosen Legion figure
-      const t = s.figures.find((g) => g.uid === action.targetUid && g.owner === 'legion' && g.alive);
-      if (!t) return false;
-      const atk = s.figures.find((g) => g.alive && g.owner === action.corp); // your team scores the kill
-      const rng = rngFor(s);
+    case 'attack-legion': {
+      const t = toughestLegion(s); if (!t) return false;
+      const atk = s.figures.find((g) => g.alive && g.owner === corp);
       const { hits } = rollDice(rng, 3, 'black');
       s.log.push(`  Control Defense System fires 3 black dice at ${figureType(t.typeId).name} — ${hits} hit(s).`);
       if (atk) applyHits(s, atk, t, hits, rng, false);
-      s.rngState = rng.serialize();
       break;
     }
-    case 'reroll': // Heroic Luck — re-roll one die in each of your attacks this round
-      (s.roundFx.reroll ??= {}).team = action.corp;
+    case 'mind-control': {
+      const t = toughestLegion(s); if (!t) return false;
+      t.actionsLeft = 0; t.stun = 2; // seized — loses its actions
+      s.log.push(`  ${figureType(t.typeId).name} is seized and loses its next actions.`);
       break;
-    case 'phase': // Molecular Phasing — your Doomtroopers move through walls this round
-      s.roundFx.phase = action.corp;
+    }
+    case 'teleport': {
+      const mover = s.figures.filter((g) => g.alive && g.owner === corp)
+        .sort((a, b) => moverEngageDist(s, b) - moverEngageDist(s, a))[0]; // the one furthest from the fight
+      if (!mover) break;
+      const here = sectorAt(s, mover.x, mover.y);
+      const cands = s.sectors.filter((sec) => power.scope === 'any'
+        ? sec !== here
+        : here && Math.abs(sec.ox - here.ox) + Math.abs(sec.oy - here.oy) === here.size); // orthogonally adjacent tile
+      let dest: { x: number; y: number } | null = null;
+      for (const sec of cands) { dest = teleportDest(s, sec); if (dest) break; }
+      if (!dest) break;
+      s.log.push(`  ${figureType(mover.typeId).name} teleports to (${dest.x},${dest.y}).`);
+      mover.x = dest.x; mover.y = dest.y;
       break;
-    case 'flavor': // narrative power — no automatic mechanic
-      s.log.push('  (Resolve this card\'s effect manually.)');
+    }
+    case 'move-force-card': {
+      const fc = s.forceCards.find((f) => !f.revealed); if (!fc) return false;
+      const cur = s.sectors.find((sec) => sec.id === fc.sectorId);
+      const adj = cur && s.sectors.find((sec) => sec.id !== fc.sectorId
+        && Math.abs(sec.ox - cur.ox) + Math.abs(sec.oy - cur.oy) === cur.size);
+      if (adj) { fc.sectorId = adj.id; s.log.push(`  A face-down Force Card shifts to Sector ${adj.id}.`); }
       break;
-    default:
-      return false;
+    }
+    case 'door': {
+      const legion = s.figures.filter((f) => f.alive && f.owner === 'legion');
+      let pair: { t: Figure; l: Figure; d: number } | null = null;
+      for (const t of s.figures.filter((f) => f.alive && f.owner === corp))
+        for (const l of legion) { const d = dist(t.x, t.y, l.x, l.y); if (!pair || d < pair.d) pair = { t, l, d }; }
+      if (!pair) return false;
+      const dx = pair.l.x - pair.t.x, dy = pair.l.y - pair.t.y;
+      const dir = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
+      s.walls.push({ x: pair.t.x, y: pair.t.y, dir: dir as 'N' | 'E' | 'S' | 'W' });
+      s.log.push(`  A door seals the wall ${dir} of ${figureType(pair.t.typeId).name}.`);
+      break;
+    }
+    case 'pp-steal': {
+      const e = enemyCorpOf(s, corp); if (!e) return false;
+      const amt = Math.min(5, s.promotion[e] ?? 0);
+      s.promotion[e] = (s.promotion[e] ?? 0) - amt;
+      s.promotion[corp] = (s.promotion[corp] ?? 0) + 5;
+      s.log.push(`  ${corp} takes 5 Promotion Points (${e} loses ${amt}).`);
+      break;
+    }
+    case 'card-steal': {
+      const e = enemyCorpOf(s, corp); const eh = e ? s.doomHands[e] : null; if (!eh || !eh.length) break;
+      const i = Math.max(0, Math.floor(rng.rollDie(eh.length)) - 1); // rollDie(n) returns 1..n
+      const taken = eh.splice(i, 1)[0];
+      s.doomHands[corp] = [...(s.doomHands[corp] ?? []), taken];
+      s.log.push(`  ${corp} steals a Doomtrooper Card from ${e}.`);
+      break;
+    }
+    case 'card-discard': {
+      const e = enemyCorpOf(s, corp); const eh = e ? s.doomHands[e] : null; if (!eh || !eh.length) break;
+      const i = Math.max(0, Math.floor(rng.rollDie(eh.length)) - 1);
+      eh.splice(i, 1);
+      s.log.push(`  ${corp} forces ${e} to discard a Doomtrooper Card.`);
+      break;
+    }
+    case 'debuff-move': case 'debuff-firearm': {
+      const t = s.figures.filter((f) => f.alive && f.owner !== 'legion' && f.owner !== corp)
+        .sort((a, b) => a.woundsTaken - b.woundsTaken)[0];
+      if (!t) break;
+      if (power.effect === 'debuff-move') t.moveDebuff = (t.moveDebuff ?? 0) + 1;
+      else t.firearmDiceDown = (t.firearmDiceDown ?? 0) + 1;
+      s.log.push(`  ${figureType(t.typeId).name} is hampered for the rest of the mission.`);
+      break;
+    }
+    case 'no-melee-vs': {
+      const e = enemyCorpOf(s, corp); if (!e) return false;
+      const set = ((s.missionFx.noMeleeVs ??= {})[e] ??= []);
+      for (const v of power.vs ?? []) if (!set.includes(v)) set.push(v);
+      s.log.push(`  ${e} can no longer close-combat ${(power.vs ?? []).join(', ')} this mission.`);
+      break;
+    }
+    case 'cap-1': {
+      const e = enemyCorpOf(s, corp); if (!e) return false;
+      (s.roundFx.cap ??= {})[e] = { ...(s.roundFx.cap?.[e]), perFig: 1 };
+      s.log.push(`  ${e}'s figures may act only once this round.`);
+      break;
+    }
+    case 'lose-extra': {
+      const e = enemyCorpOf(s, corp); if (!e) return false;
+      s.extraPool[e] = Math.max(0, (s.extraPool[e] ?? 0) - 2);
+      s.log.push(`  ${e} loses 2 Extra Actions.`);
+      break;
+    }
+    case 'false-orders': {
+      const e = enemyCorpOf(s, corp); if (!e) return false;
+      let drained = 0;
+      for (const f of s.figures.filter((f) => f.alive && f.owner === e)) { while (f.actionsLeft > 0 && drained < 2) { f.actionsLeft--; drained++; } }
+      s.extraPool[e] = Math.max(0, (s.extraPool[e] ?? 0) - Math.max(0, 2 - drained));
+      s.log.push(`  ${e}'s pair is misdirected and loses 2 actions.`);
+      break;
+    }
+    default: return false;
   }
-  s.doomHands[action.corp] = hand.filter((c) => c !== action.cardId);
-  s.log.push(`${action.corp} plays Doomtrooper Card "${card.name}".`);
+  s.rngState = rng.serialize();
+  // discard the played card from the (possibly modified, e.g. after a steal) hand
+  s.doomHands[corp] = (s.doomHands[corp] ?? []).filter((c) => c !== action.cardId);
+  s.log.push(`${corp} plays "${power.name}".`);
   return true;
+}
+
+/** Toughest (highest-armor) living Legion figure — the default sabotage target. */
+function toughestLegion(s: GameState): Figure | undefined {
+  return s.figures.filter((f) => f.alive && f.owner === 'legion')
+    .sort((a, b) => figureType(b.typeId).armor - figureType(a.typeId).armor)[0];
+}
+/** Distance from a trooper to the nearest Legion figure (Infinity if none). */
+function moverEngageDist(s: GameState, f: Figure): number {
+  const legion = s.figures.filter((g) => g.alive && g.owner === 'legion');
+  return legion.length ? Math.min(...legion.map((l) => dist(f.x, f.y, l.x, l.y))) : 0;
 }
 
 /** If the active seat has no figure with actions remaining, auto-advance the turn. */

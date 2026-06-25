@@ -50,6 +50,9 @@ export interface Figure {
   alive: boolean;
   tag?: string;               // objective marker (e.g. 'boss', 'door')
   equipment?: string[];       // equipment card ids carried (troopers)
+  moveDebuff?: number;        // Hurt Leg: moves this many squares fewer (mission-long)
+  firearmDiceDown?: number;   // Uncalibrated Targeter: this many fewer firearm dice (mission-long)
+  stun?: number;              // Commanding Voice: loses this many of its next actions
 }
 
 /** A sector placed on the board. Local squares are 0..size-1. */
@@ -139,6 +142,13 @@ export interface RoundFx {
   armorDown?: string[];             // figure uids whose Armor is -1 this round
   reroll?: { team?: string; legion?: 'all' | 'melee' }; // re-roll one attack die this round
   phase?: string;                   // corp whose Doomtroopers move through walls this round
+  cap?: Record<string, { perFig?: number; total?: number }>; // per-corp action limits this round
+  dud?: Record<string, boolean>;    // corp -> negates the next Legion firearm hit on it this round
+}
+
+/** Persistent, mission-long card effects (not reset between rounds). */
+export interface MissionFx {
+  noMeleeVs?: Record<string, string[]>; // corp -> creature typeIds it may not close-combat
 }
 
 export interface GameState {
@@ -186,6 +196,7 @@ export interface GameState {
   eventDeck: string[];        // remaining Dark Legion event card ids
   pendingEvent: string | null; // event drawn this round, awaiting Legion resolution
   roundFx: RoundFx;           // transient card effects for the current round
+  missionFx: MissionFx;       // persistent card effects for the whole mission
   setupDone: boolean;         // equipment selection finished
 
   win: WinCondition;
@@ -221,5 +232,5 @@ export type Action =
   | { type: 'equip'; corp: string; trooperUid: string; cardId: string } // setup: assign equipment
   | { type: 'finish-setup' }                                    // setup: lock in equipment
   | { type: 'resolve-event' }                                   // Legion acknowledges the round's event
-  | { type: 'play-doom-card'; corp: string; cardId: string; targetUid?: string } // play a Doomtrooper Card
+  | { type: 'play-doom-card'; corp: string; cardId: string; power: number; targetUid?: string; x?: number; y?: number } // play a Doomtrooper Card (one of its two powers)
   | { type: 'start' };                                          // setup -> play
