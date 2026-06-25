@@ -88,9 +88,9 @@ const trial = build({
   briefing: 'A fast-play training mission. Two corporation teams strike in while one player commands the Dark Legion. Learn movement, line of sight and combat.',
   objective: 'Corporations: eliminate every Dark Legion creature. Dark Legion: eliminate all Doomtroopers.',
   sectorDefs: [[1, 'map1.jpg', 0, 0], [2, 'map2.jpg', 1, 0], [4, 'map4.jpg', 0, 1], [5, 'map5.jpg', 1, 1], [3, 'map3.jpg', 2, 1]],
-  citadel: { x: 15, y: 7, w: 1, h: 1, arm: 3 },
+  citadel: { x: 11, y: 7, w: 1, h: 1, arm: 4 }, // centered on the board, arms reach into the sectors
   trooperEntrances: [{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 9, y: 0 }, { x: 10, y: 0 }],
-  legionEntrances: [{ x: 12, y: 8 }, { x: 19, y: 8 }, { x: 15, y: 11 }], // just outside the cross
+  legionEntrances: [{ x: 11, y: 2 }, { x: 11, y: 12 }, { x: 6, y: 7 }, { x: 16, y: 8 }], // around the cross
   timeLimitRounds: 99,
   forceCardSectors: [['fc1', 1], ['fc2', 2], ['fc4', 4], ['fc5', 5], ['fc7', 3]], // RAW: cards 1,2,4,5,7
   corporations: ['Bauhaus', 'Imperial'],
