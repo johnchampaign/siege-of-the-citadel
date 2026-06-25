@@ -293,6 +293,10 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
               opacity: dim ? 0.45 : 1,
               filter: dim ? 'grayscale(0.6)' : 'none',
               transition: 'opacity 0.15s, box-shadow 0.15s',
+              // Figures sit above board markers (exit 🔒 / entrance arrows, zIndex 2)
+              // so the figure — not an overlay — takes the click and stays visible
+              // when it stands on an exit square.
+              zIndex: 3,
               display: 'flex',
               alignItems: 'flex-end',
               justifyContent: 'center',
