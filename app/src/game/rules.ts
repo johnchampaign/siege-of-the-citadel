@@ -79,11 +79,15 @@ export function wallBetween(walls: Wall[], x: number, y: number, dir: 'N' | 'E' 
 /** Does a wall block a single 8-directional step from (x,y) to adjacent (tx,ty)?
  *  Only walls are considered — board membership, the Citadel and figure
  *  occupancy are the caller's concern. An orthogonal step is blocked by the
- *  shared edge. A diagonal step is blocked when either edge on the *source*
- *  side is walled, OR when the destination is a sealed pocket whose two
- *  back-facing edges are both walled (so neither orthogonal detour could enter
- *  it) — i.e. you can't squeeze diagonally past a wall corner. */
-export function wallBlocksStep(walls: Wall[], x: number, y: number, tx: number, ty: number): boolean {
+ *  shared edge.
+ *
+ *  For a diagonal, four wall-edges meet at the pivot corner: the two on the
+ *  source cell (in the move direction) and the two on the destination cell
+ *  (facing back). With `strictCorner` (movement) the diagonal is blocked if
+ *  ANY of them is walled — you can't slip past a wall corner. Without it (line
+ *  of sight) the destination side only blocks when it's a fully sealed pocket
+ *  (both back-edges walled), so a sight line may graze a single wall corner. */
+export function wallBlocksStep(walls: Wall[], x: number, y: number, tx: number, ty: number, strictCorner = false): boolean {
   const dx = tx - x, dy = ty - y;
   if (dx !== 0 && dy === 0) return wallBetween(walls, x, y, dx > 0 ? 'E' : 'W');
   if (dy !== 0 && dx === 0) return wallBetween(walls, x, y, dy > 0 ? 'S' : 'N');
@@ -93,7 +97,7 @@ export function wallBlocksStep(walls: Wall[], x: number, y: number, tx: number, 
   // …and the two edges of the destination cell facing back toward the source.
   const hWall2 = wallBetween(walls, tx, ty, dx > 0 ? 'W' : 'E');
   const vWall2 = wallBetween(walls, tx, ty, dy > 0 ? 'N' : 'S');
-  return hWall || vWall || (hWall2 && vWall2);
+  return hWall || vWall || (strictCorner ? hWall2 || vWall2 : hWall2 && vWall2);
 }
 
 /** Can a figure step from (x,y) to an adjacent square (8-directional)?
@@ -105,7 +109,7 @@ export function canStep(state: GameState, x: number, y: number, tx: number, ty: 
   if (!onBoard(state, tx, ty)) return false;
   if (inCitadel(state, tx, ty)) return false; // the Citadel is solid
   if (figureAt(state, tx, ty)) return false;
-  return !wallBlocksStep(state.walls, x, y, tx, ty);
+  return !wallBlocksStep(state.walls, x, y, tx, ty, /* strictCorner */ true);
 }
 
 /** Chebyshev distance — number of squares for diagonal-allowed movement. */
