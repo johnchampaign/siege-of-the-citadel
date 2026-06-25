@@ -103,6 +103,11 @@ export function hasLineOfSight(state: GameState, ax: number, ay: number, bx: num
     if (ddy !== 0 && wallBetween(state.walls, px, py, ddy > 0 ? 'S' : 'N')) return false;
     // intervening figure or the solid Citadel blocks the line of sight
     if (!(gx === bx && gy === by) && !(gx === ax && gy === ay)) {
+      // Off-board: the line strays into a square that isn't part of the board
+      // (e.g. the empty north-east of an L-/cross-shaped layout). There's no
+      // square to shoot through and the tiles' outer frames wall it off, so the
+      // board edge blocks the shot — you can't fire across the void.
+      if (!onBoard(state, gx, gy)) return false;
       if (inCitadel(state, gx, gy)) return false;
       const f = figureAt(state, gx, gy);
       if (f) return false;
