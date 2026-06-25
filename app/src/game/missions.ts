@@ -87,7 +87,7 @@ const trial = build({
   briefing: 'A fast-play training mission. Two corporation teams strike in while one player commands the Dark Legion. Learn movement, line of sight and combat.',
   objective: 'Corporations: eliminate every Dark Legion creature. Dark Legion: eliminate all Doomtroopers.',
   sectorDefs: [[1, 'map1.jpg', 0, 0], [2, 'map2.jpg', 1, 0], [4, 'map4.jpg', 0, 1], [5, 'map5.jpg', 1, 1], [3, 'map3.jpg', 2, 1]],
-  citadel: { x: 15, y: 7, w: 2, h: 2, arm: 2 },
+  citadel: { x: 15, y: 7, w: 1, h: 1, arm: 3 },
   trooperEntrances: [{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 9, y: 0 }, { x: 10, y: 0 }],
   legionEntrances: [{ x: 12, y: 8 }, { x: 19, y: 8 }, { x: 15, y: 11 }], // just outside the cross
   timeLimitRounds: 99,
@@ -102,7 +102,7 @@ const m1 = build({
   briefing: 'The Citadel entrance is blown open. Strike deep, break the defenders, then withdraw.',
   objective: 'Earn 20 Promotion Points of Dark Legion kills, then exit one trooper from the entry edge.',
   sectorDefs: [[1, 'map1.jpg', 0, 0], [2, 'map2.jpg', 1, 0], [5, 'map5.jpg', 2, 0], [4, 'map4.jpg', 0, 1], [3, 'map3.jpg', 1, 1], [6, 'map6.jpg', 2, 1]],
-  citadel: { x: 11, y: 7, w: 2, h: 2, arm: 2 },
+  citadel: { x: 11, y: 7, w: 1, h: 1, arm: 3 },
   trooperEntrances: [{ x: 0, y: 3 }, { x: 0, y: 4 }, { x: 0, y: 11 }, { x: 0, y: 12 }],
   legionEntrances: [{ x: 8, y: 8 }, { x: 15, y: 8 }, { x: 11, y: 11 }], // just outside the cross
   exits: [{ x: 0, y: 3 }, { x: 0, y: 4 }, { x: 0, y: 11 }, { x: 0, y: 12 }],
@@ -132,7 +132,7 @@ const m3 = build({
   briefing: 'Eliminating ordinary troops is not enough. Find and destroy the Centurion subcommander, Ghash.',
   objective: 'Eliminate Ghash (the tagged Centurion). No ordinary Centurions are used.',
   sectorDefs: [[3, 'map3.jpg', 2, 0], [2, 'map2.jpg', 1, 0], [5, 'map5.jpg', 2, 1], [4, 'map4.jpg', 0, 1], [1, 'map1.jpg', 1, 1]],
-  citadel: { x: 13, y: 7, w: 2, h: 2, arm: 2 },
+  citadel: { x: 13, y: 7, w: 1, h: 1, arm: 3 },
   trooperEntrances: [{ x: 0, y: 11 }, { x: 0, y: 12 }, { x: 8, y: 0 }, { x: 9, y: 0 }],
   legionEntrances: [{ x: 10, y: 8 }, { x: 17, y: 8 }, { x: 13, y: 11 }], // just outside the cross
   timeLimitRounds: 8,
@@ -203,7 +203,7 @@ const m8 = build({
   briefing: 'A powerful combat-teleporter sits in the top level of the Citadel. Destroy both doorways.',
   objective: 'Destroy both Teleporter Doorways (Armor 3 — strike 4 hits in one attack).',
   sectorDefs: [[1, 'map1.jpg', 2, 0], [3, 'map3.jpg', 1, 0], [8, 'map8.jpg', 2, 1], [5, 'map5.jpg', 0, 1], [6, 'map6.jpg', 1, 1], [4, 'map4.jpg', 1, 2], [7, 'map7.jpg', 2, 2]],
-  citadel: { x: 19, y: 7, w: 2, h: 2, arm: 2 },
+  citadel: { x: 19, y: 7, w: 1, h: 1, arm: 3 },
   trooperEntrances: [{ x: 16, y: 0 }, { x: 17, y: 0 }, { x: 0, y: 8 }, { x: 0, y: 9 }],
   legionEntrances: [{ x: 16, y: 8 }, { x: 23, y: 8 }, { x: 19, y: 11 }], // just outside the cross
   timeLimitRounds: 5,
@@ -234,7 +234,7 @@ const m10 = build({
   briefing: 'The Nepharite Alakhai, Lord of the Citadel, is finally located. Go in and eliminate him.',
   objective: 'Eliminate the Nepharite Alakhai (4 actions per round). Enter and exit only via Sector 1 or 2.',
   sectorDefs: [[4, 'map4.jpg', 1, 0], [5, 'map5.jpg', 2, 0], [6, 'map6.jpg', 0, 1], [1, 'map1.jpg', 1, 1], [3, 'map3.jpg', 2, 1], [8, 'map8.jpg', 1, 2], [7, 'map7.jpg', 2, 2]],
-  citadel: { x: 11, y: 7, w: 2, h: 2, arm: 2 },
+  citadel: { x: 11, y: 7, w: 1, h: 1, arm: 3 },
   trooperEntrances: [{ x: 8, y: 0 }, { x: 9, y: 0 }, { x: 16, y: 0 }, { x: 17, y: 0 }],
   legionEntrances: [{ x: 0, y: 11 }, { x: 15, y: 8 }, { x: 11, y: 11 }], // just outside the cross
   timeLimitRounds: 8,

@@ -154,29 +154,43 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
         return <div key={'w' + i} style={style} />;
       })}
 
-      {/* citadel — a cross (central body + four arms) when `arm` is set */}
+      {/* citadel — the Citadel marker: a thin black crosshair (central medallion
+          with four long thin arms ending in nodes), per the module's marker */}
       {state.citadel && (() => {
         const c = state.citadel;
         const arm = c.arm ?? 0;
-        const barStyle: React.CSSProperties = {
+        const bar: React.CSSProperties = {
           position: 'absolute',
-          background: 'radial-gradient(circle, #3a0000, #120000)',
-          border: '2px solid #7a1010',
+          background: 'linear-gradient(180deg, #3a3a42, #111116)',
+          border: '1px solid #4a4a55',
           boxSizing: 'border-box',
           pointerEvents: 'none',
         };
+        // small round node at an arm tip (cell cx,cy)
+        const node = (cx: number, cy: number) => (
+          <div key={`n${cx}-${cy}`} style={{
+            position: 'absolute', left: px(cx) + CELL * 0.2, top: py(cy) + CELL * 0.2,
+            width: CELL * 0.6, height: CELL * 0.6, borderRadius: '50%',
+            background: 'radial-gradient(circle, #44444c, #0c0c10)', border: '1px solid #55555f',
+            pointerEvents: 'none',
+          }} />
+        );
+        const cxCenter = px(c.x) + (c.w * CELL) / 2;
+        const cyCenter = py(c.y) + (c.h * CELL) / 2;
+        const disk = Math.max(c.w, c.h) * CELL * 1.35;
         return (
           <>
-            {/* vertical bar */}
-            <div style={{ ...barStyle, left: px(c.x), top: py(c.y - arm), width: c.w * CELL, height: (c.h + 2 * arm) * CELL }} />
-            {/* horizontal bar */}
-            <div style={{ ...barStyle, left: px(c.x - arm), top: py(c.y), width: (c.w + 2 * arm) * CELL, height: c.h * CELL }} />
-            {/* central label / Dark Legion mark */}
+            <div style={{ ...bar, left: px(c.x), top: py(c.y - arm), width: c.w * CELL, height: (c.h + 2 * arm) * CELL }} />
+            <div style={{ ...bar, left: px(c.x - arm), top: py(c.y), width: (c.w + 2 * arm) * CELL, height: c.h * CELL }} />
+            {node(c.x, c.y - arm)}{node(c.x, c.y + arm)}{node(c.x - arm, c.y)}{node(c.x + arm, c.y)}
+            {/* central medallion with the Dark Legion mark */}
             <div style={{
-              position: 'absolute', left: px(c.x), top: py(c.y), width: c.w * CELL, height: c.h * CELL,
+              position: 'absolute', left: cxCenter - disk / 2, top: cyCenter - disk / 2, width: disk, height: disk,
+              borderRadius: '50%', background: 'radial-gradient(circle, #2a2a31, #08080b)', border: '2px solid #5a5a66',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#c33', fontSize: 9, fontWeight: 700, textAlign: 'center', pointerEvents: 'none',
-            }}>CITADEL</div>
+              color: '#b33', fontSize: disk * 0.5, fontWeight: 900, pointerEvents: 'none',
+              boxShadow: '0 0 8px #000',
+            }} title="The Citadel">✦</div>
           </>
         );
       })()}
