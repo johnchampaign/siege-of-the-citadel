@@ -2,24 +2,38 @@ import { CAMPAIGN_MISSIONS } from './missions';
 import type { GameState } from './types';
 
 // ---------------------------------------------------------------------------
-// Campaign progression. The base game carries a team's Promotion Points,
-// Rank and Credits from mission to mission. We persist that here in
-// localStorage (the framework's GameServer holds a single game's state, not a
-// cross-mission campaign).
+// Campaign progression — faithful to the 1993 Rules Book.
+//
+// RAW: a campaign is a POINTS RACE, not a fixed 1->10 march. "The Primary
+// Missions are numbered one through ten and progress in difficulty. You can
+// play the missions in sequence or select them at random." After each mission
+// you "select another mission". In a long campaign "the first player to reach
+// a set number of Points is declared the winner" (130 Promotion Points is the
+// highest Rank possible). Rank, Promotion Points and Credits carry over from
+// mission to mission, so an earlier mission may be REPLAYED with the team's
+// accumulated standing to grind more points/credits.
+//
+// Persisted in localStorage so a player returning to the page resumes their
+// campaign standing automatically.
 // ---------------------------------------------------------------------------
 
 export const CAMPAIGN_CORPS = ['Bauhaus', 'Imperial', 'Capitol'];
 
+/** RAW: 130 Promotion Points is the highest Rank possible — the long-campaign goal. */
+export const DEFAULT_TARGET = 130;
+
 export interface CampaignState {
-  index: number;                      // next mission index into CAMPAIGN_MISSIONS (0..10)
   promotion: Record<string, number>;  // accumulated promotion points per corp
   credits: Record<string, number>;
+  target: number;                      // PP that wins a long campaign
+  completed: Record<string, boolean>;  // missionId -> accomplished at least once
   history: { mission: string; winners: string[] }[];
+  champion?: string | null;            // corp that first reached the target (campaign won)
 }
 
 const KEY = 'siege-campaign-v1';
 
-/** Promotion-point → Rank table from the rulebook. */
+/** Promotion-point → Rank table from the 1993 rulebook (p.5). */
 export function rankForPoints(p: number): number {
   if (p >= 100) return 6;
   if (p >= 70) return 5;
@@ -29,19 +43,33 @@ export function rankForPoints(p: number): number {
   return 1;
 }
 
-export function newCampaign(): CampaignState {
+export function newCampaign(target = DEFAULT_TARGET): CampaignState {
   return {
-    index: 0,
     promotion: Object.fromEntries(CAMPAIGN_CORPS.map((c) => [c, 0])),
-    credits: Object.fromEntries(CAMPAIGN_CORPS.map((c) => [c, 2])), // start with 2 credits
+    credits: Object.fromEntries(CAMPAIGN_CORPS.map((c) => [c, 2])), // RAW: start with 2 Credits
+    target,
+    completed: {},
     history: [],
+    champion: null,
   };
 }
 
 export function loadCampaign(): CampaignState | null {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as CampaignState) : null;
+    if (!raw) return null;
+    const c = JSON.parse(raw) as CampaignState & { index?: number };
+    // Migrate the older linear shape (had `index`, no target/completed/champion).
+    if (c.target == null) c.target = DEFAULT_TARGET;
+    if (!c.completed) {
+      c.completed = {};
+      for (const h of c.history ?? []) {
+        if ((h.winners ?? []).some((w) => w !== 'legion')) c.completed[h.mission] = true;
+      }
+    }
+    if (c.champion === undefined) c.champion = null;
+    delete c.index;
+    return c;
   } catch {
     return null;
   }
@@ -59,28 +87,52 @@ export function ranks(c: CampaignState): Record<string, number> {
   return Object.fromEntries(CAMPAIGN_CORPS.map((corp) => [corp, rankForPoints(c.promotion[corp] ?? 0)]));
 }
 
-export function currentMission(c: CampaignState) {
-  return CAMPAIGN_MISSIONS[Math.min(c.index, CAMPAIGN_MISSIONS.length - 1)];
+/** The points leader (tie broken by Credits, then name) — the mini-campaign winner. */
+export function leader(c: CampaignState): string {
+  return [...CAMPAIGN_CORPS].sort(
+    (a, b) => (c.promotion[b] ?? 0) - (c.promotion[a] ?? 0) || (c.credits[b] ?? 0) - (c.credits[a] ?? 0) || a.localeCompare(b),
+  )[0];
 }
 
-export function isComplete(c: CampaignState): boolean {
-  return c.index >= CAMPAIGN_MISSIONS.length;
+/** Lowest-numbered mission not yet accomplished — the suggested "next" in the
+ *  narrative sequence. Null once every mission has been completed. */
+export function suggestedMission(c: CampaignState) {
+  return CAMPAIGN_MISSIONS.find((m) => !c.completed[m.id]) ?? null;
 }
 
-/** Fold a finished game's result into the campaign and advance to the next mission. */
+export function allMissionsDone(c: CampaignState): boolean {
+  return CAMPAIGN_MISSIONS.every((m) => c.completed[m.id]);
+}
+
+/** Has the campaign been won (a corp reached the points target)? */
+export function campaignWon(c: CampaignState): boolean {
+  return !!c.champion;
+}
+
+/** Fold a finished mission's result into the campaign standing. The mission may
+ *  be any mission (free selection / replay) — there is no fixed running index. */
 export function recordResult(c: CampaignState, finished: GameState): CampaignState {
-  const mission = CAMPAIGN_MISSIONS[c.index];
-  if (!mission || finished.phase !== 'over') return c;
+  if (finished.phase !== 'over') return c;
+  const missionId = finished.missionId;
   const promotion = { ...c.promotion };
   const credits = { ...c.credits };
   for (const corp of CAMPAIGN_CORPS) {
-    promotion[corp] = (promotion[corp] ?? 0) + (finished.promotion[corp] ?? 0);
-    credits[corp] = finished.credits[corp] ?? credits[corp] ?? 0; // gameState already added rewards
+    promotion[corp] = (promotion[corp] ?? 0) + (finished.promotion[corp] ?? 0); // PP earned this mission
+    credits[corp] = finished.credits[corp] ?? credits[corp] ?? 0;               // carried in, already adjusted
+  }
+  const troopersWon = (finished.winners ?? []).some((w) => w !== 'legion');
+  const completed = { ...c.completed, [missionId]: c.completed[missionId] || troopersWon };
+  // Champion: the first corp to reach the target (locked in once declared).
+  let champion = c.champion ?? null;
+  if (!champion) {
+    for (const corp of CAMPAIGN_CORPS) if ((promotion[corp] ?? 0) >= c.target) { champion = corp; break; }
   }
   return {
-    index: c.index + 1,
+    ...c,
     promotion,
     credits,
-    history: [...c.history, { mission: mission.id, winners: finished.winners ?? [] }],
+    completed,
+    champion,
+    history: [...c.history, { mission: missionId, winners: finished.winners ?? [] }],
   };
 }

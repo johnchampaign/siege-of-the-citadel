@@ -11,8 +11,10 @@ import { ReportPanel } from './ReportPanel';
 import { WallEditor } from './WallEditor';
 import {
   type CampaignState, loadCampaign, saveCampaign, newCampaign, clearCampaign,
-  ranks, currentMission, isComplete, recordResult, CAMPAIGN_CORPS,
+  ranks, recordResult, CAMPAIGN_CORPS, suggestedMission, allMissionsDone,
+  campaignWon, leader,
 } from '../game/campaign';
+import { CAMPAIGN_MISSIONS } from '../game/missions';
 
 export const App: React.FC = () => {
   const [missionId, setMissionId] = useState('trial');
@@ -106,19 +108,18 @@ export const App: React.FC = () => {
     const c = newCampaign();
     setCampaign(c);
     saveCampaign(c);
-    playCampaignMission(c);
+    const m = suggestedMission(c);
+    if (m) playCampaignMission(c, m.id);
   }
-  function playCampaignMission(c: CampaignState) {
-    if (isComplete(c)) return;
-    const m = currentMission(c);
-    setMissionId(m.id);
+  function playCampaignMission(c: CampaignState, missionId: string) {
+    setMissionId(missionId);
     setSelected(null);
     setInCampaign(true);
     recordedRef.current = false;
-    game.reset(m.id, Math.floor(Math.random() * 100000), {
+    game.reset(missionId, Math.floor(Math.random() * 100000), {
       corporations: CAMPAIGN_CORPS,
-      rank: ranks(c),
-      credits: { ...c.credits },
+      rank: ranks(c),          // RAW: Rank is fixed at mission start from accumulated PP
+      credits: { ...c.credits }, // Credits carry in
     });
   }
   function resetCampaign() {
@@ -187,7 +188,7 @@ export const App: React.FC = () => {
           inCampaign={inCampaign}
           phase={state.phase}
           onStart={startCampaign}
-          onContinue={(c) => playCampaignMission(c)}
+          onPlay={(c, mid) => playCampaignMission(c, mid)}
           onReset={resetCampaign}
         />
 
@@ -232,15 +233,26 @@ export const App: React.FC = () => {
             <div style={{ fontSize: 16, color: '#e8c349' }}>
               🏆 Winner: <b>{state.winners?.map((w) => state.seats.find((s) => s.id === w)?.name).join(', ')}</b>
               <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button style={btn} onClick={() => newGame(missionId)}>Play Again</button>
-                {inCampaign && campaign && !isComplete(campaign) && (
-                  <button style={{ ...btn, background: '#2a6' }} onClick={() => playCampaignMission(campaign)}>
-                    ▶ Next Campaign Mission ({currentMission(campaign).name.replace('Mission ', 'M').split(':')[0]})
-                  </button>
+                {!inCampaign && <button style={btn} onClick={() => newGame(missionId)}>Play Again</button>}
+                {inCampaign && campaign && campaignWon(campaign) && (
+                  <span style={{ fontSize: 13, color: '#e8c349' }}>🏆 {campaign.champion} has won the campaign ({campaign.target} pp)!</span>
                 )}
-                {inCampaign && campaign && isComplete(campaign) && (
-                  <span style={{ fontSize: 13, color: '#7c7' }}>🎖 Campaign complete!</span>
-                )}
+                {inCampaign && campaign && !campaignWon(campaign) && (() => {
+                  const next = suggestedMission(campaign);
+                  return (
+                    <>
+                      <button style={{ ...btn }} onClick={() => playCampaignMission(campaign, missionId)}>↻ Replay this mission</button>
+                      {next && (
+                        <button style={{ ...btn, background: '#2a6' }} onClick={() => playCampaignMission(campaign, next.id)}>
+                          ▶ Next: {next.name.replace('Mission ', 'M').split(':')[0]}
+                        </button>
+                      )}
+                      {allMissionsDone(campaign) && (
+                        <span style={{ fontSize: 12, color: '#7c7' }}>🎖 All missions cleared — replay any to reach {campaign.target} pp.</span>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -529,45 +541,72 @@ const CampaignPanel: React.FC<{
   inCampaign: boolean;
   phase: string;
   onStart: () => void;
-  onContinue: (c: CampaignState) => void;
+  onPlay: (c: CampaignState, missionId: string) => void;
   onReset: () => void;
-}> = ({ campaign, inCampaign, phase, onStart, onContinue, onReset }) => {
+}> = ({ campaign, inCampaign, phase, onStart, onPlay, onReset }) => {
+  const busy = inCampaign && phase !== 'over'; // a campaign mission is mid-play
   return (
     <Panel title="Campaign">
       {!campaign ? (
         <div style={{ fontSize: 12, color: '#bbb' }}>
-          Play all 10 missions in sequence. Promotion points, Rank and Credits carry forward —
-          your team grows stronger (extra actions, better gear) as it advances.
+          A points race. Play the 10 missions in any order — or replay earlier ones — carrying
+          your Rank, Promotion Points and Credits forward. First corporation to reach the points
+          target wins.
           <button style={{ ...btn, marginTop: 8, background: '#2a6', fontWeight: 700 }} onClick={onStart}>▶ Start Campaign</button>
         </div>
       ) : (
         <div style={{ fontSize: 12 }}>
-          {isComplete(campaign) ? (
-            <div style={{ color: '#7c7' }}>🎖 All 10 missions complete!</div>
-          ) : (
-            <div style={{ color: '#ddd' }}>
-              Next: <b style={{ color: '#e8c349' }}>{currentMission(campaign).name}</b> (mission {campaign.index + 1}/10)
+          {campaignWon(campaign) && (
+            <div style={{ color: '#e8c349', fontWeight: 700, marginBottom: 6 }}>
+              🏆 {campaign.champion} wins the campaign! ({campaign.target} pp reached)
             </div>
           )}
-          <div style={{ marginTop: 6 }}>
-            {CAMPAIGN_CORPS.map((c) => (
-              <div key={c} style={{ display: 'flex', justifyContent: 'space-between', color: '#aaa' }}>
-                <span>{c}</span>
-                <span><span style={{ color: '#7cf' }}>R{ranks(campaign)[c]}</span> · <span style={{ color: '#7c7' }}>{campaign.credits[c]}c</span> · <span style={{ color: '#e8c349' }}>{campaign.promotion[c]}pp</span></span>
-              </div>
-            ))}
+          {/* standings — leader highlighted */}
+          <div style={{ marginBottom: 6 }}>
+            {CAMPAIGN_CORPS.map((c) => {
+              const lead = leader(campaign) === c;
+              return (
+                <div key={c} style={{ display: 'flex', justifyContent: 'space-between', color: lead ? '#fff' : '#aaa' }}>
+                  <span>{lead ? '★ ' : ''}{c}</span>
+                  <span>
+                    <span style={{ color: '#7cf' }}>R{ranks(campaign)[c]}</span> ·{' '}
+                    <span style={{ color: '#7c7' }}>{campaign.credits[c]}c</span> ·{' '}
+                    <span style={{ color: '#e8c349' }}>{campaign.promotion[c]}/{campaign.target}pp</span>
+                  </span>
+                </div>
+              );
+            })}
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-            {!isComplete(campaign) && !(inCampaign && phase !== 'over') && (
-              <button style={{ ...btn, background: '#2a6' }} onClick={() => onContinue(campaign)}>
-                {campaign.index === 0 ? '▶ Play Mission 1' : '▶ Continue'}
-              </button>
-            )}
-            <button style={btn} onClick={onReset}>Reset</button>
+          {/* mission picker — play or replay any mission */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 230, overflowY: 'auto', marginBottom: 6 }}>
+            {CAMPAIGN_MISSIONS.map((m, i) => {
+              const done = !!campaign.completed[m.id];
+              const isNext = suggestedMission(campaign)?.id === m.id;
+              return (
+                <button
+                  key={m.id}
+                  disabled={busy}
+                  onClick={() => onPlay(campaign, m.id)}
+                  title={done ? 'Completed — click to replay' : 'Not yet completed'}
+                  style={{
+                    ...btn, textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    opacity: busy ? 0.5 : 1, background: isNext ? '#244' : undefined,
+                    border: isNext ? '1px solid #2a6' : btn.border,
+                  }}
+                >
+                  <span style={{ color: done ? '#7c7' : '#ddd' }}>
+                    {done ? '✓' : '▸'} M{i + 1} {m.name.split(':')[1]?.trim() ?? m.name}
+                  </span>
+                  <span style={{ fontSize: 10, color: '#888' }}>{done ? 'replay' : isNext ? 'next' : 'play'}</span>
+                </button>
+              );
+            })}
           </div>
-          {inCampaign && phase !== 'over' && (
-            <div style={{ fontSize: 11, color: '#7c7', marginTop: 6 }}>● Campaign mission in progress.</div>
+          {busy && <div style={{ fontSize: 11, color: '#7c7', marginBottom: 6 }}>● Mission in progress — finish it to update standings.</div>}
+          {allMissionsDone(campaign) && !campaignWon(campaign) && (
+            <div style={{ fontSize: 11, color: '#7c7', marginBottom: 6 }}>🎖 All missions cleared — replay any to grow toward {campaign.target} pp.</div>
           )}
+          <button style={btn} onClick={onReset}>Reset campaign</button>
         </div>
       )}
     </Panel>
