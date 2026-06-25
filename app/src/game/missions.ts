@@ -1,6 +1,7 @@
 import type { MissionDef, SectorPlacement, ForceCardDef, Placement } from './types';
 import { CORP_TROOPERS } from './data';
 import { wallsForSectors } from './sectorWalls';
+import { citadelWingWalls } from './rules';
 
 const SIZE = 8;
 
@@ -64,7 +65,8 @@ function build(b: Build): MissionDef {
     briefing: b.briefing,
     objective: b.objective,
     sectors,
-    walls: wallsForSectors(sectors), // traced from the tiles (sectorWalls.ts)
+    // traced tile walls (sectorWalls.ts) plus the Citadel's wing walls
+    walls: [...wallsForSectors(sectors), ...(b.citadel ? citadelWingWalls(b.citadel) : [])],
 
     citadel: b.citadel,
     trooperEntrances: b.trooperEntrances,

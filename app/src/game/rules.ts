@@ -25,36 +25,37 @@ export function figureAt(state: GameState, x: number, y: number): Figure | undef
 // outer node. Only the solid squares block movement and line of sight; the two
 // gap squares in each wing are open doorways.
 
-/** Distance index d (1..8) out from the centre along an arm → is it solid? */
-function armSolid(d: number): boolean {
+/** Distance index d (1..8) out from the centre along an arm → is that segment
+ *  a wall? Pattern per wing: [3 wall · 2 gap · 3 wall] (inner, doorway, node). */
+function armWall(d: number): boolean {
   return d >= 1 && d <= 8 && d !== 4 && d !== 5;
 }
 
-/** Is (x,y) a solid square of the Citadel crosshair? */
+/** Is (x,y) part of the solid 2x2 Citadel base (the central medallion)? Only
+ *  the base is impassable; the four wings are thin walls (see citadelWingWalls). */
 export function inCitadel(state: GameState, x: number, y: number): boolean {
   const c = state.citadel;
   if (!c) return false;
-  const { cx, cy } = c;
-  // vertical bar occupies the two columns straddling the corner (cx-1, cx)
-  if (x === cx - 1 || x === cx) {
-    const d = y < cy ? cy - y : y - cy + 1; // 1..8 out from the corner line
-    if (armSolid(d)) return true;
-  }
-  // horizontal bar occupies the two rows straddling the corner (cy-1, cy)
-  if (y === cy - 1 || y === cy) {
-    const d = x < cx ? cx - x : x - cx + 1;
-    if (armSolid(d)) return true;
-  }
-  return false;
+  return (x === c.cx - 1 || x === c.cx) && (y === c.cy - 1 || y === c.cy);
 }
 
-/** Enumerate the solid Citadel squares (for rendering the fallback shape). */
-export function citadelSolidCells(c: { cx: number; cy: number }): { x: number; y: number }[] {
-  const out: { x: number; y: number }[] = [];
-  const fake = { citadel: c } as GameState;
-  for (let y = c.cy - 8; y <= c.cy + 7; y++)
-    for (let x = c.cx - 8; x <= c.cx + 7; x++)
-      if (inCitadel(fake, x, y)) out.push({ x, y });
+/** The Citadel's four wings as thin walls running along the centre grid lines
+ *  (x=cx and y=cy), with the [3 wall · 2 gap · 3 wall] pattern per 8-cell wing.
+ *  Vertical bar → walls on the cx line (block E–W); horizontal bar → walls on
+ *  the cy line (block N–S). Tagged citadel:true so they render as the piece. */
+export function citadelWingWalls(c: { cx: number; cy: number }): Wall[] {
+  const out: Wall[] = [];
+  const { cx, cy } = c;
+  // vertical bar: wall on the line x=cx, for each row of the two wings
+  for (let y = cy - 8; y <= cy + 7; y++) {
+    const d = y < cy ? cy - y : y - cy + 1; // 1..8 out from the corner
+    if (armWall(d)) out.push({ x: cx - 1, y, dir: 'E', citadel: true }); // edge cx-1|cx
+  }
+  // horizontal bar: wall on the line y=cy, for each column of the two wings
+  for (let x = cx - 8; x <= cx + 7; x++) {
+    const d = x < cx ? cx - x : x - cx + 1;
+    if (armWall(d)) out.push({ x, y: cy - 1, dir: 'S', citadel: true }); // edge cy-1|cy
+  }
   return out;
 }
 

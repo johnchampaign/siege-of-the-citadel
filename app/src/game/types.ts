@@ -80,6 +80,7 @@ export interface Wall {
   x: number;
   y: number;
   dir: 'N' | 'E' | 'S' | 'W';
+  citadel?: boolean; // part of the Citadel crosshair (rendered as the piece, not a tile wall)
 }
 
 export interface MissionDef {

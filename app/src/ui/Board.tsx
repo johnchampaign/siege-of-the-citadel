@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import type { GameState, Action, Figure } from '../game/types';
 import { figureType } from '../game/data';
-import { citadelSolidCells } from '../game/rules';
 import { useAssets } from './assets';
 import { DesignedFigure, DesignedTile } from './designed';
 
@@ -154,15 +153,17 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
         }}>{sec.mapImage.replace('.jpg', '')}</div>
       ))}
 
-      {/* interior walls */}
+      {/* interior walls (gold tile walls) + Citadel wing walls (dark metal).
+          In Module-art mode the marker image covers the Citadel, so skip those. */}
       {state.walls.map((w, i) => {
+        if (w.citadel && useArt) return null;
         const lx = px(w.x), ty = py(w.y);
-        const T = 4;
+        const T = w.citadel ? 6 : 4;
         const horiz = w.dir === 'N' || w.dir === 'S';
         const style: React.CSSProperties = {
           position: 'absolute',
-          background: '#c9a23a',
-          boxShadow: '0 0 3px #000',
+          background: w.citadel ? 'linear-gradient(90deg, #4a4a55, #15151a)' : '#c9a23a',
+          boxShadow: w.citadel ? '0 0 4px #000' : '0 0 3px #000',
           pointerEvents: 'none',
           left: w.dir === 'E' ? lx + CELL - T / 2 : w.dir === 'W' ? lx - T / 2 : lx,
           top: w.dir === 'S' ? ty + CELL - T / 2 : w.dir === 'N' ? ty - T / 2 : ty,
@@ -191,25 +192,22 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
             }} />
           );
         }
-        // Fallback: draw each solid square of the crosshair (matches collision).
-        const cells = citadelSolidCells(c);
+        // Fallback (Designed): the solid 2x2 base + central medallion. The thin
+        // wing walls are drawn by the wall loop above (citadel:true).
         return (
-          <>
-            {cells.map(({ x, y }) => (
-              <div key={`cit${x}-${y}`} style={{
-                position: 'absolute', left: px(x), top: py(y), width: CELL, height: CELL,
-                background: 'linear-gradient(180deg, #3a3a42, #111116)',
-                border: '1px solid #4a4a55', boxSizing: 'border-box', pointerEvents: 'none',
-              }} />
-            ))}
-            {/* central medallion with the Dark Legion mark, on the corner */}
+          <div style={{
+            position: 'absolute', left: vx - CELL, top: vy - CELL, width: CELL * 2, height: CELL * 2,
+            background: 'linear-gradient(180deg, #3a3a42, #111116)', border: '1px solid #4a4a55',
+            boxSizing: 'border-box', pointerEvents: 'none',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }} title="The Citadel">
             <div style={{
-              position: 'absolute', left: vx - CELL, top: vy - CELL, width: CELL * 2, height: CELL * 2,
-              borderRadius: '50%', background: 'radial-gradient(circle, #2a2a31, #08080b)', border: '2px solid #5a5a66',
+              width: CELL * 1.3, height: CELL * 1.3, borderRadius: '50%',
+              background: 'radial-gradient(circle, #2a2a31, #08080b)', border: '2px solid #5a5a66',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#b33', fontSize: CELL, fontWeight: 900, pointerEvents: 'none', boxShadow: '0 0 8px #000',
-            }} title="The Citadel">✦</div>
-          </>
+              color: '#b33', fontSize: CELL * 0.7, fontWeight: 900, boxShadow: '0 0 8px #000',
+            }}>✦</div>
+          </div>
         );
       })()}
 
