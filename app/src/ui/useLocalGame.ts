@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RandomAI, Rng, recordPlay } from 'digital-boardgame-framework';
 import { adapter, createInitialState } from '../game/adapter';
+import { onBoard, inCitadel, wallBlocksStep } from '../game/rules';
 import { HUB_SLUG } from './api';
 import type { GameState, Action } from '../game/types';
 
@@ -83,19 +84,49 @@ export function useLocalGame(initialMission: string): LocalGame {
   return { state, legal, submit, reset, legionAI, setLegionAI };
 }
 
-// Move a legion figure toward the nearest trooper.
+// Move a legion figure toward the nearest trooper. Uses a wall-aware shortest
+// path (BFS through open steps) rather than straight-line distance, so figures
+// route around walls instead of marching into them and wasting their movement.
 function pickAdvanceMove(s: GameState, moves: Extract<Action, { type: 'move' }>[]): Action {
   const troopers = s.figures.filter((f) => f.alive && f.owner !== 'legion');
   if (!troopers.length) return moves[0];
+  const distMap = trooperDistanceField(s, troopers.map((t) => ({ x: t.x, y: t.y })));
   let best = moves[0];
   let bestD = Infinity;
   for (const m of moves) {
-    const f = s.figures.find((x) => x.uid === m.uid);
-    if (!f) continue;
-    for (const t of troopers) {
-      const d = Math.max(Math.abs(m.x - t.x), Math.abs(m.y - t.y));
-      if (d < bestD) { bestD = d; best = m; }
-    }
+    // path distance from the square this move lands on to the nearest trooper;
+    // fall back to straight-line if that square wasn't reached (fully walled off).
+    const d = distMap.get(`${m.x},${m.y}`)
+      ?? Math.min(...troopers.map((t) => Math.max(Math.abs(m.x - t.x), Math.abs(m.y - t.y))));
+    if (d < bestD) { bestD = d; best = m; }
   }
   return best;
+}
+
+/** BFS outward from every trooper through wall-passable steps (ignoring figure
+ *  occupancy, since troopers/creatures stand on those squares). Returns a map of
+ *  "x,y" → number of steps to the nearest trooper. */
+function trooperDistanceField(s: GameState, sources: { x: number; y: number }[]): Map<string, number> {
+  const dist = new Map<string, number>();
+  const queue: { x: number; y: number }[] = [];
+  for (const src of sources) {
+    const key = `${src.x},${src.y}`;
+    if (!dist.has(key)) { dist.set(key, 0); queue.push(src); }
+  }
+  for (let head = 0; head < queue.length; head++) {
+    const { x, y } = queue[head];
+    const d = dist.get(`${x},${y}`)!;
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        const nx = x + dx, ny = y + dy;
+        if (!onBoard(s, nx, ny) || inCitadel(s, nx, ny)) continue;
+        if (wallBlocksStep(s.walls, x, y, nx, ny)) continue;
+        const k = `${nx},${ny}`;
+        if (dist.has(k)) continue;
+        dist.set(k, d + 1);
+        queue.push({ x: nx, y: ny });
+      }
+  }
+  return dist;
 }

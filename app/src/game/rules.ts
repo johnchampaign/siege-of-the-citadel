@@ -76,27 +76,36 @@ export function wallBetween(walls: Wall[], x: number, y: number, dir: 'N' | 'E' 
   );
 }
 
+/** Does a wall block a single 8-directional step from (x,y) to adjacent (tx,ty)?
+ *  Only walls are considered — board membership, the Citadel and figure
+ *  occupancy are the caller's concern. An orthogonal step is blocked by the
+ *  shared edge. A diagonal step is blocked when either edge on the *source*
+ *  side is walled, OR when the destination is a sealed pocket whose two
+ *  back-facing edges are both walled (so neither orthogonal detour could enter
+ *  it) — i.e. you can't squeeze diagonally past a wall corner. */
+export function wallBlocksStep(walls: Wall[], x: number, y: number, tx: number, ty: number): boolean {
+  const dx = tx - x, dy = ty - y;
+  if (dx !== 0 && dy === 0) return wallBetween(walls, x, y, dx > 0 ? 'E' : 'W');
+  if (dy !== 0 && dx === 0) return wallBetween(walls, x, y, dy > 0 ? 'S' : 'N');
+  // diagonal: the two edges of the source cell in the move direction…
+  const hWall = wallBetween(walls, x, y, dx > 0 ? 'E' : 'W');
+  const vWall = wallBetween(walls, x, y, dy > 0 ? 'S' : 'N');
+  // …and the two edges of the destination cell facing back toward the source.
+  const hWall2 = wallBetween(walls, tx, ty, dx > 0 ? 'W' : 'E');
+  const vWall2 = wallBetween(walls, tx, ty, dy > 0 ? 'N' : 'S');
+  return hWall || vWall || (hWall2 && vWall2);
+}
+
 /** Can a figure step from (x,y) to an adjacent square (8-directional)?
  *  One square per step; cannot pass through walls or figures. Diagonal moves
- *  are blocked if BOTH flanking orthogonal edges are walled (can't squeeze
- *  through a wall corner). */
+ *  can't squeeze through a wall corner (see wallBlocksStep). */
 export function canStep(state: GameState, x: number, y: number, tx: number, ty: number): boolean {
   const dx = tx - x, dy = ty - y;
   if (Math.abs(dx) > 1 || Math.abs(dy) > 1 || (dx === 0 && dy === 0)) return false;
   if (!onBoard(state, tx, ty)) return false;
   if (inCitadel(state, tx, ty)) return false; // the Citadel is solid
   if (figureAt(state, tx, ty)) return false;
-
-  if (dx !== 0 && dy === 0) {
-    return !wallBetween(state.walls, x, y, dx > 0 ? 'E' : 'W');
-  }
-  if (dy !== 0 && dx === 0) {
-    return !wallBetween(state.walls, x, y, dy > 0 ? 'S' : 'N');
-  }
-  // diagonal: both component edges must be open
-  const hWall = wallBetween(state.walls, x, y, dx > 0 ? 'E' : 'W');
-  const vWall = wallBetween(state.walls, x, y, dy > 0 ? 'S' : 'N');
-  return !hWall && !vWall;
+  return !wallBlocksStep(state.walls, x, y, tx, ty);
 }
 
 /** Chebyshev distance — number of squares for diagonal-allowed movement. */
@@ -126,10 +135,8 @@ export function hasLineOfSight(state: GameState, ax: number, ay: number, bx: num
     const gx = Math.round(cx);
     const gy = Math.round(cy);
     if (gx === px && gy === py) continue;
-    // moving from (px,py) to (gx,gy): must not cross a wall
-    const ddx = gx - px, ddy = gy - py;
-    if (ddx !== 0 && wallBetween(state.walls, px, py, ddx > 0 ? 'E' : 'W')) return false;
-    if (ddy !== 0 && wallBetween(state.walls, px, py, ddy > 0 ? 'S' : 'N')) return false;
+    // moving from (px,py) to (gx,gy): must not cross a wall (corner pockets too)
+    if (wallBlocksStep(state.walls, px, py, gx, gy)) return false;
     // intervening figure or the solid Citadel blocks the line of sight
     if (!(gx === bx && gy === by) && !(gx === ax && gy === ay)) {
       // Off-board: the line strays into a square that isn't part of the board

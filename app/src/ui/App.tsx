@@ -125,6 +125,26 @@ export const App: React.FC = () => {
     game.reset(mid, Math.floor(Math.random() * 100000));
   }
 
+  // Start the mission, but first nudge the player if any Doomtrooper is heading
+  // in without an upgraded weapon (a common setup slip — weapons are free at
+  // Rank 1, so there's rarely a reason to skip them). They can proceed anyway.
+  function startMission() {
+    const weaponIds = new Set(EQUIPMENT_LIST.filter((e) => e.kind === 'weapon').map((e) => e.id));
+    const unarmed = state.figures.filter(
+      (f) => f.owner !== 'legion' && f.alive && !(f.equipment ?? []).some((id) => weaponIds.has(id)),
+    );
+    if (unarmed.length > 0) {
+      const names = unarmed.map((f) => figureType(f.typeId).name).join(', ');
+      const ok = window.confirm(
+        `${unarmed.length === 1 ? 'This Doomtrooper has' : 'These Doomtroopers have'} no upgraded weapon assigned:\n\n${names}\n\n` +
+        `Upgraded weapons are free at Rank 1 — you may want to equip them first.\n\n` +
+        `Press OK to start the mission anyway, or Cancel to go back and assign equipment.`,
+      );
+      if (!ok) return;
+    }
+    submit({ type: 'start' });
+  }
+
   function startCampaign() {
     const c = newCampaign();
     setCampaign(c);
@@ -256,7 +276,7 @@ export const App: React.FC = () => {
             </div>
           )}
           {state.phase === 'setup' && (
-            <button style={{ ...btn, background: '#2a6', fontSize: 16, padding: '8px 16px' }} onClick={() => submit({ type: 'start' })}>
+            <button style={{ ...btn, background: '#2a6', fontSize: 16, padding: '8px 16px' }} onClick={startMission}>
               ▶ Start Mission
             </button>
           )}

@@ -6,6 +6,7 @@ import { MISSIONS, FORCE_CARDS } from './missions';
 import { EVENTS, EQUIPMENT, DOOM_CARDS, SECONDARY_MISSIONS, buildEventDeck, dealDoomHands, assignSecondaries } from './cards';
 import {
   onBoard, figureAt, canStep, dist, hasLineOfSight, resolveAttack, rankSaveColor, rollDice, inCitadel,
+  wallBlocksStep,
 } from './rules';
 import type { Weapon, FigureType } from './types';
 
@@ -484,7 +485,10 @@ export const adapter: GameAdapter<GameState, Action, string> = {
           ft.weapons.forEach((w, idx) => {
             const d = dist(f.x, f.y, target.x, target.y);
             if (w.kind === 'close') {
-              if (d === 1) actions.push({ type: 'attack', uid: f.uid, targetUid: target.uid, weaponIdx: idx });
+              // close combat needs an adjacent square with no wall between (you
+              // can't reach a hand weapon through a wall).
+              if (d === 1 && !wallBlocksStep(s.walls, f.x, f.y, target.x, target.y))
+                actions.push({ type: 'attack', uid: f.uid, targetUid: target.uid, weaponIdx: idx });
             } else {
               if (d >= 1 && d <= w.range && hasLineOfSight(s, f.x, f.y, target.x, target.y))
                 actions.push({ type: 'attack', uid: f.uid, targetUid: target.uid, weaponIdx: idx });
@@ -608,7 +612,11 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       const w = ft.weapons[action.weaponIdx];
       if (!w) return { state, ok: false, reason: 'bad weapon' };
       const d = dist(f.x, f.y, target.x, target.y);
-      if (w.kind === 'close' && d !== 1) return { state, ok: false, reason: 'not adjacent' };
+      if (w.kind === 'close') {
+        if (d !== 1) return { state, ok: false, reason: 'not adjacent' };
+        if (wallBlocksStep(s.walls, f.x, f.y, target.x, target.y))
+          return { state, ok: false, reason: 'wall blocks close combat' };
+      }
       if (w.kind === 'firearm') {
         if (d < 1 || d > w.range) return { state, ok: false, reason: 'out of range' };
         if (!hasLineOfSight(s, f.x, f.y, target.x, target.y))

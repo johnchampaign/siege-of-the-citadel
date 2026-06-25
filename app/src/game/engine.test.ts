@@ -2,6 +2,7 @@
 import { RandomAI, Rng } from 'digital-boardgame-framework';
 import { adapter, createInitialState } from './adapter';
 import { effectiveType, extraActionPoolSize } from './data';
+import { wallBlocksStep } from './rules';
 import { MISSION_LIST } from './missions';
 import type { GameState, Action } from './types';
 
@@ -147,6 +148,36 @@ async function playOut(seed: number): Promise<GameState> {
     const fig = (uid: string) => r.state.figures.find((f) => f.uid === uid)!;
     check('swing hit both flanking legionnaires', fig(legA).woundsTaken > 0 && fig(legB).woundsTaken > 0);
     if (fig(ally).woundsTaken > 0) check('friendly fire cost PP', r.state.promotion.Bauhaus < ppBefore);
+  }
+
+  // --- walls block movement geometry ---
+  {
+    const wallE = [{ x: 3, y: 3, dir: 'E' as const }]; // edge between (3,3) and (4,3)
+    check('wall blocks orthogonal step through it', wallBlocksStep(wallE, 3, 3, 4, 3));
+    check('wall blocks diagonal past a source edge', wallBlocksStep(wallE, 3, 3, 4, 4));
+    check('open orthogonal step allowed', !wallBlocksStep(wallE, 3, 3, 3, 4));
+    // a sealed diagonal pocket: dest (4,4) walled on both back edges (N and W)
+    const pocket = [{ x: 4, y: 3, dir: 'S' as const }, { x: 3, y: 4, dir: 'E' as const }];
+    check('sealed diagonal pocket blocks the squeeze', wallBlocksStep(pocket, 3, 3, 4, 4));
+    // …but a single far edge must NOT block a legitimate diagonal alongside it
+    check('single far edge still allows the diagonal', !wallBlocksStep([{ x: 3, y: 4, dir: 'E' as const }], 3, 3, 4, 4));
+  }
+
+  // --- close combat and firearms cannot reach through a wall ---
+  {
+    let g = createInitialState({ missionId: 'trial', seed: 11 });
+    g = adapter.applyAction(g, { type: 'start' }, g.seats[0].id);
+    const t = g.figures.find((f) => f.owner !== 'legion')!;
+    g.activeSeat = t.owner;
+    t.x = 3; t.y = 3; t.actionsLeft = 2; t.actionsTaken = 0;
+    g.figures.push({ uid: 'wenemy', typeId: 'legionnaire', owner: 'legion', x: 4, y: 3, woundsTaken: 0, actionsLeft: 0, actionsTaken: 0, alive: true });
+    g.walls = [{ x: 3, y: 3, dir: 'E' }]; // wall on the shared edge, between attacker and target
+    const legal = adapter.legalActions(g, t.owner);
+    check('melee through wall not offered', !legal.some((a) => a.type === 'attack' && a.targetUid === 'wenemy' && a.weaponIdx === 0));
+    check('melee through wall rejected', !adapter.tryApplyAction!(g, { type: 'attack', uid: t.uid, targetUid: 'wenemy', weaponIdx: 0 }, t.owner).ok);
+    check('firearm through wall rejected (no LOS)', !adapter.tryApplyAction!(g, { type: 'attack', uid: t.uid, targetUid: 'wenemy', weaponIdx: 1 }, t.owner).ok);
+    g.walls = []; // drop the wall — now adjacency works
+    check('melee offered with no wall between', adapter.legalActions(g, t.owner).some((a) => a.type === 'attack' && a.targetUid === 'wenemy' && a.weaponIdx === 0));
   }
 
   // --- combat sanity: a Legionnaire (armor 0) dies to enough hits ---
