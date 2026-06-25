@@ -52,14 +52,19 @@ export const App: React.FC = () => {
     }
   }, [state.phase, inCampaign, campaign, state]);
 
-  // On startup, if this device has a cloud-linked campaign, pull the latest
-  // standing (another device may have progressed it). Cloud is source of truth.
+  // On startup, resume from a shared/bookmarked ?campaign=CODE link if present,
+  // otherwise pull the latest standing for this device's cloud-linked campaign
+  // (another device may have progressed it). Cloud is source of truth.
   useEffect(() => {
-    const code = campaign?.cloudCode;
+    const urlCode = new URLSearchParams(location.search).get('campaign');
+    const code = (urlCode || campaign?.cloudCode || '').toUpperCase();
     if (!code) return;
     loadCloudCampaign(code)
       .then((remote) => {
-        if (remote && remote.cloudCode === code) { setCampaign(remote); saveCampaign(remote); }
+        if (remote) {
+          const next = { ...remote, cloudCode: code };
+          setCampaign(next); saveCampaign(next); setCampaignUrl(code);
+        }
       })
       .catch(() => {});
     // run once on mount
@@ -142,6 +147,14 @@ export const App: React.FC = () => {
     clearCampaign();
     setCampaign(null);
     setInCampaign(false);
+    setCampaignUrl(null);
+  }
+  // Reflect the cloud code in the URL so it can be bookmarked / shared as a link.
+  function setCampaignUrl(code: string | null) {
+    const url = new URL(location.href);
+    if (code) url.searchParams.set('campaign', code);
+    else url.searchParams.delete('campaign');
+    history.replaceState(null, '', url.toString());
   }
   // Enable cross-device save: push the current standing to the cloud, keep the code.
   async function enableCloud(c: CampaignState): Promise<string> {
@@ -149,16 +162,19 @@ export const App: React.FC = () => {
     const next = { ...c, cloudCode: code };
     setCampaign(next);
     saveCampaign(next);
+    setCampaignUrl(code);
     return code;
   }
   // Resume a campaign from a code typed on another device.
   async function loadFromCode(code: string): Promise<void> {
-    const remote = await loadCloudCampaign(code.trim().toUpperCase());
+    const norm = code.trim().toUpperCase();
+    const remote = await loadCloudCampaign(norm);
     if (!remote) throw new Error('No campaign found for that code.');
-    const next = { ...remote, cloudCode: code.trim().toUpperCase() };
+    const next = { ...remote, cloudCode: norm };
     setCampaign(next);
     saveCampaign(next);
     setInCampaign(false);
+    setCampaignUrl(norm);
   }
 
   const lastLog = state.log.slice(-12).reverse();
@@ -663,8 +679,12 @@ const CampaignPanel: React.FC<{
             {campaign.cloudCode ? (
               <div style={{ color: '#9c9' }}>
                 ☁ Cross-device code: <b style={{ color: '#7cf', fontFamily: 'monospace', letterSpacing: 1 }}>{campaign.cloudCode}</b>
-                <button style={{ ...btn, padding: '1px 6px', marginLeft: 6 }} onClick={() => { navigator.clipboard?.writeText(campaign.cloudCode!); setCloudMsg('Copied!'); }}>copy</button>
-                <div style={{ color: '#888', marginTop: 2 }}>Enter this code on another device to continue. Synced after each mission.</div>
+                <button style={{ ...btn, padding: '1px 6px', marginLeft: 6 }} onClick={() => { navigator.clipboard?.writeText(campaign.cloudCode!); setCloudMsg('Code copied!'); }}>copy code</button>
+                <button style={{ ...btn, padding: '1px 6px', marginLeft: 4 }} onClick={() => {
+                  navigator.clipboard?.writeText(`${location.origin}${location.pathname}?campaign=${campaign.cloudCode}`);
+                  setCloudMsg('Share link copied!');
+                }}>copy link</button>
+                <div style={{ color: '#888', marginTop: 2 }}>Bookmark this page or share the link to continue on another device. Synced after each mission.</div>
               </div>
             ) : (
               <button style={btn} disabled={cloudBusy} onClick={async () => {
