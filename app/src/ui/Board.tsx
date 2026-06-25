@@ -176,6 +176,20 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
       {state.citadel && (() => {
         const c = state.citadel;
         const arm = c.arm ?? 0;
+        // In Module-art mode use the real Citadel marker from the loaded module,
+        // centered on the Citadel and sized so its arms span the cross.
+        const markerUrl = useArt ? assets.getMap('citadelmarker.png') : undefined;
+        if (markerUrl) {
+          const span = (2 * arm + 2) * CELL; // tip-to-tip ~ the cross extent
+          const cx = px(c.x) + (c.w * CELL) / 2;
+          const cy = py(c.y) + (c.h * CELL) / 2;
+          return (
+            <img src={markerUrl} alt="Citadel" title="The Citadel" style={{
+              position: 'absolute', left: cx - span / 2, top: cy - span / 2,
+              width: span, height: span, pointerEvents: 'none',
+            }} />
+          );
+        }
         const bar: React.CSSProperties = {
           position: 'absolute',
           background: 'linear-gradient(180deg, #3a3a42, #111116)',

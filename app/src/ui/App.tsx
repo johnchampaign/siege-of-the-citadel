@@ -651,8 +651,19 @@ const AssetPanel: React.FC<{ theme: 'designed' | 'art'; setTheme: (t: 'designed'
 
       {a.loaded ? (
         <div style={{ fontSize: 12, color: '#9c9' }}>
-          ✓ Module artwork available ({a.count}/{a.total} images, cached on this device).
-          <button style={{ ...btn, marginTop: 8 }} onClick={() => { a.clear(); setTheme('designed'); }}>Remove artwork</button>
+          {a.count < a.total ? (
+            <div style={{ background: '#3a2a14', border: '1px solid #a83', borderRadius: 6, padding: 8, marginBottom: 8, color: '#fc8' }}>
+              ⚠ {a.total - a.count} new image(s) added since you loaded the module (e.g. the Citadel marker).
+              Click <b>Update artwork</b> to re-extract them from your .vmod.
+            </div>
+          ) : (
+            <>✓ Module artwork available ({a.count}/{a.total} images, cached on this device).</>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button style={btn} onClick={() => { a.clear(); }} title="Remove cached images, then Load .vmod again to re-extract">
+              {a.count < a.total ? '↻ Update artwork (remove → reload .vmod)' : 'Remove artwork'}
+            </button>
+          </div>
         </div>
       ) : (
         <div style={{ fontSize: 12, color: '#bbb', lineHeight: 1.5 }}>

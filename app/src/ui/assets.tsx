@@ -28,6 +28,7 @@ const TOKEN_FILES = [
 const MAP_FILES = [
   'map1.jpg', 'map2.jpg', 'map3.jpg', 'map4.jpg', 'map5.jpg',
   'map6.jpg', 'map7.jpg', 'map8.jpg', 'map9.jpg', 'emptymap.jpg',
+  'citadelmarker.png', // the Citadel marker (rendered over the board in art mode)
 ];
 const WANTED = new Set([...TOKEN_FILES, ...MAP_FILES]);
 

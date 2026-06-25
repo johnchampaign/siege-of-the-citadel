@@ -77,6 +77,17 @@ export default {
         return json({ reportId });
       }
 
+      // Mark a report resolved (public write — routine, reversible triage).
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'reports' && parts[2] === 'resolve') {
+        const id = parts[1];
+        const body = (await req.json().catch(() => ({}))) as { note?: string };
+        const r = (await env.SIEGE_KV.get(`report:${id}`, 'json')) as any;
+        if (!r) return json({ error: 'no such report' }, 404);
+        r.resolution = { at: new Date().toISOString(), note: String(body.note ?? '') };
+        await env.SIEGE_KV.put(`report:${id}`, JSON.stringify(r));
+        return json({ ok: true, reportId: id });
+      }
+
       // Public-read triage list (no PII — game state + the reporter's own words).
       if (req.method === 'GET' && parts.length === 1 && parts[0] === 'reports') {
         const list = await env.SIEGE_KV.list({ prefix: 'report:' });
