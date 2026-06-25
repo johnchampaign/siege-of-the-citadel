@@ -1,6 +1,7 @@
 {
   "name": "siege-of-the-citadel-api",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "deploy": "wrangler deploy",

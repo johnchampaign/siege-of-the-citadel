@@ -19,14 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-NOTE ON GAME CONTENT
-
-This license covers ONLY the original source code in this repository. It does
-NOT cover any "Mutant Chronicles" / "Siege of the Citadel" intellectual
-property — names, rules, artwork, board tiles, or figure counters — which
-remain the property of their respective rights holders. This project ships no
-game artwork. Players who own the game may load the community VASSAL module
-locally; the app extracts images in the browser, on the player's own device.
