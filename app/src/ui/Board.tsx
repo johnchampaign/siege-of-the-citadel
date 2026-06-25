@@ -6,6 +6,15 @@ import { DesignedFigure, DesignedTile } from './designed';
 
 const CELL = 40;
 
+// Real grid geometry of the VASSAL tiles (from the module's SquareGrid):
+// 90px square cells, with cell (0,0) CENTERED at (x0,y0) = (50,43) in the
+// 720px tile image. We position each tile by this geometry so the printed
+// square centers land on our cell centers — no edge-to-edge "stretch to fill".
+const TILE_PX = 720;
+const TILE_DX = 90;
+const TILE_X0 = 50;
+const TILE_Y0 = 43;
+
 interface Props {
   state: GameState;
   legal: Action[];
@@ -73,9 +82,22 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
           height: sec.size * CELL,
         };
         if (url) {
+          // Map source pixel (TILE_X0,TILE_Y0) [printed cell-(0,0) center] onto our
+          // cell-(0,0) center, scaling so one 90px printed cell = one CELL. Uniform
+          // scale only — the image is never non-uniformly stretched. The offset is
+          // the same for every tile, so tiles still seam together exactly.
+          const s = CELL / TILE_DX;
           return (
             <img key={sec.id + '-' + sec.ox} src={url} alt={`sector ${sec.id}`}
-              style={{ ...common, imageRendering: 'auto', opacity: 0.92 }} />
+              style={{
+                position: 'absolute',
+                left: px(sec.ox) + CELL / 2 - TILE_X0 * s,
+                top: py(sec.oy) + CELL / 2 - TILE_Y0 * s,
+                width: TILE_PX * s,
+                height: TILE_PX * s,
+                imageRendering: 'auto',
+                opacity: 0.92,
+              }} />
           );
         }
         return (
@@ -105,10 +127,7 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
                 width: CELL,
                 height: CELL,
                 boxSizing: 'border-box',
-                // In Module-art mode the tile already shows the printed squares,
-                // so don't draw a competing grid line over busy art — let the
-                // painted mats be the grid. The Designed theme keeps faint lines.
-                border: useArt ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.08)',
                 background: isMove ? 'rgba(80,200,120,0.35)' : 'transparent',
                 cursor: isMove ? 'pointer' : 'default',
               }}
