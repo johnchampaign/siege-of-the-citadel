@@ -93,7 +93,7 @@ export const CREATURES: Record<string, FigureType> = {
       { name: 'Close', kind: 'close', dice: 2, color: 'white', range: 1 },
       { name: 'Heavy Firearm', kind: 'firearm', dice: 3, color: 'red', range: 24 },
     ],
-    promotion: 6,
+    promotion: 5, // RAW: Legionnaire 1, Necromutant 2, Centurion 3, Razide 5, Nepharite 7, Ezoghoul 10
   },
   nepharite: {
     id: 'nepharite', name: 'Nepharite', faction: 'Dark Legion', token: 'nepharite.png',

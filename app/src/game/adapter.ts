@@ -308,10 +308,13 @@ function setWinner(s: GameState, winners: string[], reason: string) {
   s.log.push(`GAME OVER — ${reason}`);
   const troopersWon = winners.some((w) => w !== 'legion');
 
-  // award mission-completion credits
+  // award mission-completion credits — RAW: a team only gains Credits if it
+  // completed the mission AND has at least one Doomtrooper alive at the end.
   const reward = MISSIONS[s.missionId]?.reward;
   if (reward && troopersWon) {
-    for (const c of Object.keys(s.credits)) s.credits[c] += reward.troopers;
+    for (const c of Object.keys(s.credits)) {
+      if (s.figures.some((f) => f.owner === c && f.alive)) s.credits[c] += reward.troopers;
+    }
   }
 
   // resolve each corporation's secret Secondary Mission
@@ -630,6 +633,19 @@ export const adapter: GameAdapter<GameState, Action, string> = {
 
 // ---------- combat resolution (single + area of effect) ----------
 
+/** RAW: when a Doomtrooper is eliminated, the team's Credit total drops by 1.
+ *  "If your team does not have any Credits, your team loses five Promotion
+ *  Points instead." */
+function loseDoomtrooper(s: GameState, owner: string) {
+  if ((s.credits[owner] ?? 0) > 0) {
+    s.credits[owner] -= 1;
+    s.log.push(`  ${owner} loses 1 Credit (Doomtrooper eliminated → ${s.credits[owner]} left).`);
+  } else {
+    s.promotion[owner] = Math.max(0, (s.promotion[owner] ?? 0) - 5);
+    s.log.push(`  ${owner} has no Credits — loses 5 Promotion Points instead (total ${s.promotion[owner]}).`);
+  }
+}
+
 /** Apply `hits` from `attacker` to `fig`: rolls Kevlarite saves, deals wounds,
  *  handles kill scoring, friendly-fire penalty, and firearm-kill tallies. */
 function applyHits(s: GameState, attacker: Figure, fig: Figure, hits: number, rng: Rng, fromFirearm: boolean) {
@@ -660,8 +676,8 @@ function applyHits(s: GameState, attacker: Figure, fig: Figure, hits: number, rn
       s.log.push(`  ☠ ${figureType(fig.typeId).name} ELIMINATED — ${attacker.owner} +${pp} PP (total ${s.promotion[attacker.owner]}).`);
     } else if (fig.owner !== 'legion') {
       s.legionKills += 1;
-      s.credits[fig.owner] = Math.max(0, (s.credits[fig.owner] ?? 0) - 1);
       s.log.push(`  ☠ ${figureType(fig.typeId).name} ELIMINATED.`);
+      loseDoomtrooper(s, fig.owner);
     }
   }
 }
@@ -690,7 +706,7 @@ function resolveCombat(s: GameState, attacker: Figure, target: Figure, ft: Figur
         s.log.push(`${attacker.owner} earns ${pp} Promotion Point(s) (total ${s.promotion[attacker.owner]}).`);
       } else if (target.owner !== 'legion') {
         s.legionKills += 1;
-        s.credits[target.owner] = Math.max(0, (s.credits[target.owner] ?? 0) - 1);
+        loseDoomtrooper(s, target.owner);
       }
     }
     s.rngState = rng.serialize();
