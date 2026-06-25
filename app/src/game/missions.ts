@@ -1,6 +1,5 @@
 import type { MissionDef, SectorPlacement, ForceCardDef, Placement } from './types';
 import { CORP_TROOPERS } from './data';
-import { wallsForSectors } from './sectorWalls';
 
 const SIZE = 8;
 
@@ -64,7 +63,8 @@ function build(b: Build): MissionDef {
     briefing: b.briefing,
     objective: b.objective,
     sectors,
-    walls: wallsForSectors(sectors),
+    walls: [], // sectors are open floor — the original tiles have no interior edge-walls
+
     citadel: b.citadel,
     trooperEntrances: b.trooperEntrances,
     legionEntrances: b.legionEntrances,
