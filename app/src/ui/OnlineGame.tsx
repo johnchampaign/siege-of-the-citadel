@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
-import { useGame } from 'digital-boardgame-framework/client';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useGame, useIdentity, SignInBar } from 'digital-boardgame-framework/client';
 import { Board } from './Board';
-import { httpClient, type OnlineParams } from './api';
+import { httpClient, claimSeat, type OnlineParams } from './api';
 import { ReportPanel } from './ReportPanel';
 import { figureType, effectiveType } from '../game/data';
 import type { GameState, Action } from '../game/types';
@@ -9,8 +9,19 @@ import type { GameState, Action } from '../game/types';
 // Online (server-authoritative) game view. Driven by the framework's useGame
 // hook against the deployed API Worker. Polls for the opponent's moves.
 export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
-  const client = useMemo(() => httpClient(params.gameId, params.token), [params.gameId, params.token]);
+  // Ranked identity (anon or signed-in), kept in a ref so each move carries it
+  // to the server (per-move attribution — robust + race-free).
+  const { identity } = useIdentity();
+  const idTokRef = useRef<string | undefined>(undefined);
+  idTokRef.current = identity?.token;
+  const client = useMemo(
+    () => httpClient(params.gameId, params.token, () => idTokRef.current),
+    [params.gameId, params.token],
+  );
   const game = useGame<GameState, Action>(client, { pollMs: 2500, pauseWhenHidden: true });
+  useEffect(() => {
+    if (identity?.token) void claimSeat(params.gameId, params.token, identity.token);
+  }, [identity?.token, params.gameId, params.token]);
   const [selected, setSelected] = useState<string | null>(null);
   const [weaponIdx, setWeaponIdx] = useState(0);
 
@@ -40,7 +51,20 @@ export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
   const seatLabel = (id: string) => state!.seats.find((s) => s.id === id)?.name ?? id;
 
   return (
-    <div style={{ display: 'flex', gap: 16, padding: 16, fontFamily: 'system-ui, sans-serif', color: '#ddd', minHeight: '100vh', background: '#161616' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 16, fontFamily: 'system-ui, sans-serif', color: '#ddd', minHeight: '100vh', background: '#161616' }}>
+      <SignInBar leaderboardHref="https://games-hub-5vo.pages.dev/leaderboard?game=siege-of-the-citadel" />
+      {game.gameOver && game.ranked && (
+        <p style={{ margin: 0, fontSize: 14, color: game.ranked.recorded ? '#6c6' : '#caa' }}>
+          {game.ranked.recorded
+            ? '✓ Recorded to the leaderboard.'
+            : game.ranked.reason === 'one-player'
+              ? 'Not ranked — only one distinct player (you need the Legion and a Trooper to be different people).'
+              : game.ranked.reason === 'no-identities'
+                ? 'Not ranked — no identities were attached to the seats.'
+                : "Not ranked — couldn't reach the leaderboard."}
+        </p>
+      )}
+    <div style={{ display: 'flex', gap: 16 }}>
       <div style={{ flex: '1 1 auto', minWidth: 0 }}>
         <h1 style={{ margin: '0 0 2px', fontSize: 20, color: '#e8c349', letterSpacing: 1 }}>MUTANT CHRONICLES — online</h1>
         <div style={{ margin: '0 0 10px', color: '#a55', fontSize: 12, letterSpacing: 2 }}>SIEGE OF THE CITADEL</div>
@@ -131,6 +155,7 @@ export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
 
         <ReportPanel state={state} mode="online" gameId={params.gameId} />
       </div>
+    </div>
     </div>
   );
 };

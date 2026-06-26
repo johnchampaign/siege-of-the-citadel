@@ -1,4 +1,4 @@
-import { GameServer } from 'digital-boardgame-framework/server';
+import { GameServer, verifyIdentityToken, type Jwks } from 'digital-boardgame-framework/server';
 import { jsonCodec } from 'digital-boardgame-framework';
 import { adapter, createInitialState } from '../app/src/game/adapter';
 import type { GameState, Action } from '../app/src/game/types';
@@ -7,6 +7,18 @@ import { KVStore } from './kv-store';
 export interface Env {
   SIEGE_KV: KVNamespace;
   SITE_ORIGIN?: string; // where the playable client is hosted (for share links)
+  RATINGS_INGEST_KEY?: string; // shared secret matching the hub's; enables ranked play
+}
+
+const HUB = 'https://games-hub-5vo.pages.dev';
+let _jwks: Jwks | undefined;
+let _jwksAt = 0;
+async function getJwks(): Promise<Jwks> {
+  if (!_jwks || Date.now() - _jwksAt > 3_600_000) {
+    _jwks = (await (await fetch(`${HUB}/id/jwks`)).json()) as Jwks;
+    _jwksAt = Date.now();
+  }
+  return _jwks;
 }
 
 const CORS = {
@@ -40,6 +52,11 @@ function makeServer(env: Env, origin: string) {
     // Best-effort play counter: createGame fires an 'online' beacon to the hub.
     playBeacon: { appId: 'siege-of-the-citadel' },
     gameUrl: (gameId, token) => `${site}/?game=${gameId}&token=${token}`,
+    // Ranked play: verify hub identity tokens (claimSeat) + auto-report results.
+    verifyIdentity: async (t) => verifyIdentityToken(t, await getJwks()),
+    ...(env.RATINGS_INGEST_KEY
+      ? { ratings: { game: 'siege-of-the-citadel', ingestKey: env.RATINGS_INGEST_KEY } }
+      : {}),
   });
 }
 
@@ -154,8 +171,20 @@ export default {
           return json(await server.history(gameId, token));
         }
         if (req.method === 'POST' && sub === 'move') {
-          const { action } = (await req.json()) as { action: Action };
+          const { action, identityToken } = (await req.json()) as { action: Action; identityToken?: string };
+          // Ranked: attribute this seat from the move's identity (idempotent,
+          // race-free — turns are sequential). Best-effort; never blocks the move.
+          if (typeof identityToken === 'string' && identityToken) {
+            try { await server.claimSeat(gameId, token, identityToken); } catch { /* attribution optional */ }
+          }
           return json(await server.submit(gameId, token, action));
+        }
+        // POST /games/:id/claim — attach a hub identity to this seat on join.
+        if (req.method === 'POST' && sub === 'claim') {
+          const { identityToken } = (await req.json()) as { identityToken?: string };
+          if (typeof identityToken !== 'string' || !identityToken) return json({ error: 'identityToken required' }, 422);
+          const v = await server.claimSeat(gameId, token, identityToken);
+          return json({ ok: true, playerId: v.playerId });
         }
       }
 

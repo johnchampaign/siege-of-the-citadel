@@ -112,8 +112,22 @@ export function downloadLog(filename: string, payload: unknown) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** A GameClientApi (the framework's useGame contract) backed by the Worker. */
-export function httpClient(gameId: string, token: string): GameClientApi<GameState, Action> {
+/** Attach the player's hub identity to their seat (ranked). Best-effort. */
+export async function claimSeat(gameId: string, token: string, identityToken: string): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/games/${gameId}/claim?token=${encodeURIComponent(token)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identityToken }),
+    });
+  } catch { /* ranked attribution is optional */ }
+}
+
+/** A GameClientApi (the framework's useGame contract) backed by the Worker.
+ *  getIdentityToken lets each move carry the player's identity so the server
+ *  re-attributes the seat every turn (robust + race-free). */
+export function httpClient(
+  gameId: string, token: string, getIdentityToken?: () => string | undefined,
+): GameClientApi<GameState, Action> {
   const q = `token=${encodeURIComponent(token)}`;
   return {
     async fetch() {
@@ -125,7 +139,7 @@ export function httpClient(gameId: string, token: string): GameClientApi<GameSta
       const r = await fetch(`${API_BASE}/games/${gameId}/move?${q}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, identityToken: getIdentityToken?.() }),
       });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `move ${r.status}`);
       return r.json();
