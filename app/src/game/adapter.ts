@@ -507,7 +507,13 @@ export const adapter: GameAdapter<GameState, Action, string> = {
 
   result(s): GameResult<string> | null {
     if (s.phase === 'over' && s.winners) {
-      return { winners: s.winners, reason: s.log[s.log.length - 1] };
+      // Team game: the Legion is one side, all Doomtrooper corps the other. Tag
+      // teams so ratings don't pit the cooperating troopers against each other —
+      // each player is rated only across the Legion/Troopers divide.
+      const teams = Object.fromEntries(
+        s.seats.map((seat) => [seat.id, seat.isLegion ? 'legion' : 'troopers']),
+      );
+      return { winners: s.winners, teams, reason: s.log[s.log.length - 1] };
     }
     return null;
   },
