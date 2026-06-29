@@ -69,6 +69,15 @@ export class KVStore implements SnapshotStore {
     }
     return rows.sort((a, b) => a.turn - b.turn);
   }
+  // Snapshot-history cap (GameServer.snapshotHistory): drop per-turn history
+  // keys older than minTurn. The `:latest` key is untouched.
+  async pruneSnapshots(gameId: string, minTurn: number): Promise<void> {
+    const list = await this.kv.list({ prefix: `snap:${gameId}:t:` });
+    for (const k of list.keys) {
+      const turn = parseInt(k.name.slice(k.name.lastIndexOf(':') + 1), 10);
+      if (Number.isFinite(turn) && turn < minTurn) await this.kv.delete(k.name);
+    }
+  }
 
   async putReport(row: BugReportRow): Promise<void> {
     await this.putJson(`report:${row.reportId}`, row);

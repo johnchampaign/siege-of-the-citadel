@@ -46,6 +46,7 @@ function newCampaignCode(): string {
 function makeServer(env: Env, origin: string) {
   const site = env.SITE_ORIGIN || origin;
   return new GameServer<GameState, Action, string>({
+    snapshotHistory: 20,   // cap per-game snapshot history (framework >=0.32)
     adapter,
     codec: jsonCodec<GameState>(),
     store: new KVStore(env.SIEGE_KV),
