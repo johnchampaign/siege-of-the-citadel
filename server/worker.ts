@@ -1,5 +1,5 @@
 import { GameServer, verifyIdentityToken, type Jwks } from 'digital-boardgame-framework/server';
-import { jsonCodec } from 'digital-boardgame-framework';
+import { jsonCodec, RandomAI } from 'digital-boardgame-framework';
 import { adapter, createInitialState } from '../app/src/game/adapter';
 import type { GameState, Action } from '../app/src/game/types';
 import { KVStore } from './kv-store';
@@ -50,6 +50,9 @@ function makeServer(env: Env, origin: string) {
     adapter,
     codec: jsonCodec<GameState>(),
     store: new KVStore(env.SIEGE_KV),
+    // Server-driven AI seats (rated leaderboard opponent). Identity is
+    // ai:siege-of-the-citadel:random; shows as "🤖 AI (random)".
+    aiControllers: { random: new RandomAI<GameState, Action, string>() },
     // Best-effort play counter: createGame fires an 'online' beacon to the hub.
     playBeacon: { appId: 'siege-of-the-citadel' },
     gameUrl: (gameId, token) => `${site}/?game=${gameId}&token=${token}`,
@@ -73,11 +76,29 @@ export default {
     try {
       // POST /games  -> create a new game
       if (req.method === 'POST' && parts.length === 1 && parts[0] === 'games') {
-        const body = (await req.json()) as { missionId: string; corporations?: string[] };
+        const body = (await req.json()) as {
+          missionId: string; corporations?: string[];
+          ai?: Record<string, string>;
+          // Convenience: 'legion' -> all Doomtrooper corps are AI (human = Legion);
+          // 'troopers' -> the Legion is AI (human = the corp seats).
+          aiSide?: 'legion' | 'troopers';
+        };
         const initialState = createInitialState({ missionId: body.missionId, corporations: body.corporations, seed: (Date.now() % 1e9) | 0 });
         const players = initialState.seats.map((s) => s.id);
-        // invites maps each seat -> a full shareable play URL (gameUrl applied)
-        const { gameId, invites } = await server.createGame({ initialState, players });
+        // Resolve the AI seat map. Explicit `ai` wins; otherwise expand `aiSide`
+        // to the matching seats. AI seats are server-driven + auto-rated.
+        let ai = body.ai;
+        if (!ai && body.aiSide) {
+          const wantLegion = body.aiSide === 'troopers';
+          ai = Object.fromEntries(
+            initialState.seats.filter((s) => s.isLegion === wantLegion).map((s) => [s.id, 'random']),
+          );
+        }
+        // invites maps each seat -> a full shareable play URL (gameUrl applied).
+        const { gameId, invites } = await server.createGame({
+          initialState, players,
+          ...(ai ? { ai } : {}),
+        });
         return json({ gameId, invites });
       }
 

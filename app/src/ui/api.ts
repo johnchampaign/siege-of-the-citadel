@@ -33,11 +33,15 @@ export function readOnlineParams(): OnlineParams | null {
   return gameId && token ? { gameId, token } : null;
 }
 
-export async function createOnlineGame(missionId: string, corporations?: string[]): Promise<{ gameId: string; invites: Record<string, string> }> {
+export async function createOnlineGame(
+  missionId: string,
+  corporations?: string[],
+  aiSide?: 'legion' | 'troopers',
+): Promise<{ gameId: string; invites: Record<string, string> }> {
   const res = await fetch(`${API_BASE}/games`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ missionId, corporations }),
+    body: JSON.stringify({ missionId, corporations, aiSide }),
   });
   if (!res.ok) throw new Error(`create failed: ${res.status}`);
   return res.json();

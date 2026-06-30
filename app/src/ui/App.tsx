@@ -613,6 +613,22 @@ const MultiplayerPanel: React.FC<{ missionId: string }> = ({ missionId }) => {
     }
   }
 
+  // Human plays the Dark Legion against a server-driven AI for the Doomtrooper
+  // corps. The AI is a rated leaderboard opponent, so a signed-in result counts.
+  // Jump straight into the legion seat.
+  async function createVsAi() {
+    setBusy(true); setErr(null); setInvites(null);
+    try {
+      const r = await createOnlineGame(missionId, undefined, 'troopers');
+      const url = r.invites['legion'];
+      if (url) window.location.href = url;
+      else { setInvites(r.invites); setBusy(false); }
+    } catch (e: any) {
+      setErr(e?.message ?? String(e));
+      setBusy(false);
+    }
+  }
+
   return (
     <Panel title="Multiplayer (online)">
       <div style={{ fontSize: 12, color: '#bbb' }}>
@@ -622,6 +638,12 @@ const MultiplayerPanel: React.FC<{ missionId: string }> = ({ missionId }) => {
       <button style={{ ...btn, marginTop: 8 }} disabled={busy} onClick={create}>
         {busy ? 'Creating…' : '➕ Create Online Game'}
       </button>
+      <button style={{ ...btn, marginTop: 8, marginLeft: 8 }} disabled={busy} onClick={createVsAi}>
+        {busy ? 'Creating…' : '🤖 Play vs AI (you are the Dark Legion)'}
+      </button>
+      <div style={{ fontSize: 10, color: '#888', marginTop: 4 }}>
+        Sign in first so your result counts on the leaderboard.
+      </div>
       {err && <div style={{ color: '#f66', fontSize: 11, marginTop: 6 }}>{err}</div>}
       {invites && (
         <div style={{ marginTop: 8 }}>
