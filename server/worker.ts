@@ -79,8 +79,9 @@ export default {
         const body = (await req.json()) as {
           missionId: string; corporations?: string[];
           ai?: Record<string, string>;
-          // Convenience: 'legion' -> all Doomtrooper corps are AI (human = Legion);
-          // 'troopers' -> the Legion is AI (human = the corp seats).
+          // `aiSide` names the side the AI plays (the human takes the other):
+          //   'troopers' -> all Doomtrooper corps are AI; human = the Dark Legion.
+          //   'legion'   -> the Dark Legion is AI; human = the corp seat(s).
           aiSide?: 'legion' | 'troopers';
         };
         const initialState = createInitialState({ missionId: body.missionId, corporations: body.corporations, seed: (Date.now() % 1e9) | 0 });
@@ -89,9 +90,9 @@ export default {
         // to the matching seats. AI seats are server-driven + auto-rated.
         let ai = body.ai;
         if (!ai && body.aiSide) {
-          const wantLegion = body.aiSide === 'troopers';
+          const aiIsLegion = body.aiSide === 'legion';
           ai = Object.fromEntries(
-            initialState.seats.filter((s) => s.isLegion === wantLegion).map((s) => [s.id, 'random']),
+            initialState.seats.filter((s) => s.isLegion === aiIsLegion).map((s) => [s.id, 'random']),
           );
         }
         // invites maps each seat -> a full shareable play URL (gameUrl applied).
