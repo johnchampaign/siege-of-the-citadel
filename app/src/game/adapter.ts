@@ -1,5 +1,6 @@
-import { Rng } from 'digital-boardgame-framework';
+import { Rng, upgradeProseLog } from 'digital-boardgame-framework';
 import type { GameAdapter, GameResult } from 'digital-boardgame-framework';
+import { logEvent } from './log';
 import type { GameState, Action, Figure, MissionDef, PlayerSeat } from './types';
 import { figureType, effectiveType, extraActionPoolSize, CORP_TROOPERS } from './data';
 import { MISSIONS, FORCE_CARDS } from './missions';
@@ -12,7 +13,7 @@ import {
 } from './rules';
 import type { Weapon, FigureType } from './types';
 
-const SCHEMA = 2;
+const SCHEMA = 3; // v3: structured log (GameLogEntry[] instead of string[])
 
 // ---------- setup ----------
 
@@ -112,7 +113,7 @@ export function createInitialState(opts: NewGameOpts): GameState {
     win: mission.win,
     winners: null,
     rngState: rng.serialize(),
-    log: ['Setup. Assign equipment, then Start the mission.'],
+    log: [{ seq: 0, turn: 0, phase: 'setup', kind: 'setup', msg: 'Setup. Assign equipment, then Start the mission.', payload: { missionId: mission.id, corps } }],
   };
 }
 
@@ -176,7 +177,7 @@ function maybeRevealForceCard(s: GameState, x: number, y: number) {
   if (!fc) return;
   fc.revealed = true;
   const def = FORCE_CARDS[fc.cardId];
-  s.log.push(`Force Card revealed in Sector ${sec.id}: ${def.spawn.length} creature(s) deploy!`);
+  logEvent(s, 'force.reveal', `Force Card revealed in Sector ${sec.id}: ${def.spawn.length} creature(s) deploy!`, { sector: sec.id, cardId: fc.cardId, spawn: def.spawn });
   // place creatures on empty squares within the sector
   const spots: { x: number; y: number }[] = [];
   for (let yy = sec.oy; yy < sec.oy + sec.size; yy++) {
@@ -224,7 +225,7 @@ function applyEventEffect(s: GameState, ev: { effect: string; boost?: string[] }
     case 'pair-cap': { // Misinterpreted Orders: a corporation's pair gets 2 actions total
       const corp = Object.keys(s.doomHands).filter((c) => s.figures.some((f) => f.alive && f.owner === c))
         .sort((a, b) => (s.promotion[b] ?? 0) - (s.promotion[a] ?? 0))[0];
-      if (corp) { (s.roundFx.cap ??= {})[corp] = { ...(s.roundFx.cap?.[corp]), total: 2 }; s.log.push(`  ${corp}'s pair may take only 2 actions this round.`); }
+      if (corp) { (s.roundFx.cap ??= {})[corp] = { ...(s.roundFx.cap?.[corp]), total: 2 }; logEvent(s, 'event.effect', `${corp}'s pair may take only 2 actions this round.`, { depth: 1, effect: 'pair-cap', corp, total: 2 }); }
       break;
     }
     case 'legion-teleport': { // Dark Teleportation: a Legion figure blinks next to a Doomtrooper
@@ -243,7 +244,7 @@ function applyEventEffect(s: GameState, ev: { effect: string; boost?: string[] }
             if (!best || d < best.d) best = { f, x, y, d };
           }
         }
-        if (best) { best.f.x = best.x; best.f.y = best.y; s.log.push(`  ${figureType(best.f.typeId).name} teleports into the fight.`); }
+        if (best) { best.f.x = best.x; best.f.y = best.y; logEvent(s, 'event.effect', `${figureType(best.f.typeId).name} teleports into the fight.`, { depth: 1, effect: 'legion-teleport', uid: best.f.uid, x: best.x, y: best.y }); }
       }
       break;
     }
@@ -255,7 +256,7 @@ function applyEventEffect(s: GameState, ev: { effect: string; boost?: string[] }
       if (target) {
         const rng = rngFor(s);
         const { hits } = rollDice(rng, 3, 'black');
-        s.log.push(`  Temporary Defense fires 3 black dice at ${figureType(target.typeId).name} — ${hits} hit(s).`);
+        logEvent(s, 'event.effect', `Temporary Defense fires 3 black dice at ${figureType(target.typeId).name} — ${hits} hit(s).`, { depth: 1, effect: 'direct-damage', dice: 3, color: 'black', hits, targetUid: target.uid });
         applyHits(s, atk, target, hits, rng, false);
         s.rngState = rng.serialize();
       }
@@ -297,7 +298,7 @@ function beginRound(s: GameState) {
     const id = s.eventDeck.shift()!;
     s.pendingEvent = id;
     const ev = EVENTS[id];
-    s.log.push(`Dark Legion event: ${ev.name} — ${ev.blurb}`);
+    logEvent(s, 'event.draw', `Dark Legion event: ${ev.name} — ${ev.blurb}`, { eventId: id, name: ev.name, spawn: ev.spawn ?? [] }, 'legion');
     if (ev.spawn) spawnAtLegionEntrance(s, ev.spawn);
     applyEventEffect(s, ev);
   }
@@ -311,7 +312,7 @@ function beginRound(s: GameState) {
   }
   for (const c of Object.keys(s.extraPool)) s.extraPool[c] = extraActionPoolSize(s.rank[c] ?? 1);
   s.drawOrder = shuffledSeatOrder(s);
-  s.log.push(`— Round ${s.round} — turn order drawn.`);
+  logEvent(s, 'round.start', `— Round ${s.round} — turn order drawn.`, { round: s.round });
   revealNextSeat(s);
 }
 
@@ -346,7 +347,7 @@ function revealNextSeat(s: GameState) {
   }
   s.activeSeat = s.drawOrder.shift()!;
   const seat = s.seats.find((x) => x.id === s.activeSeat);
-  s.log.push(`${seat?.name}'s turn.`);
+  logEvent(s, 'turn.start', `${seat?.name}'s turn.`, { seat: s.activeSeat }, s.activeSeat);
 }
 
 function endActiveTurn(s: GameState) {
@@ -392,7 +393,7 @@ function setWinner(s: GameState, winners: string[], reason: string) {
   s.phase = 'over';
   s.activeSeat = null;
   s.winners = winners;
-  s.log.push(`GAME OVER — ${reason}`);
+  logEvent(s, 'mission.end', `GAME OVER — ${reason}`, { winners, reason });
   const troopersWon = winners.some((w) => w !== 'legion');
 
   // award mission-completion credits — RAW: a team only gains Credits if it
@@ -418,7 +419,7 @@ function setWinner(s: GameState, winners: string[], reason: string) {
     if (ok) {
       s.promotion[corp] = (s.promotion[corp] ?? 0) + def.bonusPromotion;
       s.credits[corp] = (s.credits[corp] ?? 0) + def.bonusCredits;
-      s.log.push(`${corp} completed Secondary Mission "${def.name}" — +${def.bonusPromotion} PP, +${def.bonusCredits} credit(s).`);
+      logEvent(s, 'mission.secondary', `${corp} completed Secondary Mission "${def.name}" — +${def.bonusPromotion} PP, +${def.bonusCredits} credit(s).`, { corp, mission: s.secondary[corp], name: def.name, pp: def.bonusPromotion, credits: def.bonusCredits }, corp);
     }
   }
 }
@@ -499,6 +500,18 @@ function setSteps(s: GameState, uid: string, n: number) {
 export const adapter: GameAdapter<GameState, Action, string> = {
   schemaVersion: SCHEMA,
 
+  /** v2 -> v3: the log was a prose string[] (with a leading-two-spaces
+   *  indentation hack). Wrap old lines as kind:'legacy' entries so in-flight
+   *  KV snapshots keep loading and rendering. */
+  migrate(rawState, fromVersion) {
+    const s = rawState as GameState & { schema?: number; log: unknown[] };
+    if (fromVersion < 3 && Array.isArray(s.log) && (s.log.length === 0 || typeof s.log[0] === 'string')) {
+      s.log = upgradeProseLog(s.log as string[], (s as GameState).round ?? 0);
+    }
+    s.schema = SCHEMA;
+    return s as GameState;
+  },
+
   currentActor(s) {
     if (s.phase === 'setup') return s.seats[0].id; // anyone may press Start
     if (s.phase === 'over') return null;
@@ -513,7 +526,8 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       const teams = Object.fromEntries(
         s.seats.map((seat) => [seat.id, seat.isLegion ? 'legion' : 'troopers']),
       );
-      return { winners: s.winners, teams, reason: s.log[s.log.length - 1] };
+      const over = [...s.log].reverse().find((e) => e.kind === 'mission.end');
+      return { winners: s.winners, teams, reason: over?.msg ?? s.log[s.log.length - 1]?.msg ?? '' };
     }
     return null;
   },
@@ -691,7 +705,7 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       if (f.owner !== 'legion' && s.exits.some((e) => e.x === f.x && e.y === f.y) && escapeAllowed(s)) {
         f.alive = false;
         s.escaped += 1;
-        s.log.push(`${figureType(f.typeId).name} escaped off the board!`);
+        logEvent(s, 'figure.escape', `${figureType(f.typeId).name} escaped off the board!`, { uid: f.uid, typeId: f.typeId, corp: f.owner }, f.owner);
       } else if (f.owner !== 'legion') {
         maybeRevealForceCard(s, f.x, f.y);
       }
@@ -752,10 +766,10 @@ export const adapter: GameAdapter<GameState, Action, string> = {
 function loseDoomtrooper(s: GameState, owner: string) {
   if ((s.credits[owner] ?? 0) > 0) {
     s.credits[owner] -= 1;
-    s.log.push(`  ${owner} loses 1 Credit (Doomtrooper eliminated → ${s.credits[owner]} left).`);
+    logEvent(s, 'credits.loss', `${owner} loses 1 Credit (Doomtrooper eliminated → ${s.credits[owner]} left).`, { depth: 1, corp: owner, amount: 1, remaining: s.credits[owner] });
   } else {
     s.promotion[owner] = Math.max(0, (s.promotion[owner] ?? 0) - 5);
-    s.log.push(`  ${owner} has no Credits — loses 5 Promotion Points instead (total ${s.promotion[owner]}).`);
+    logEvent(s, 'promotion.loss', `${owner} has no Credits — loses 5 Promotion Points instead (total ${s.promotion[owner]}).`, { depth: 1, corp: owner, amount: 5, total: s.promotion[owner], reason: 'trooper-lost-no-credits' });
   }
 }
 
@@ -766,7 +780,7 @@ function applyHits(s: GameState, attacker: Figure, fig: Figure, hits: number, rn
   // Dud Round: the next Legion firearm hit on this team fizzles (faulty ammo).
   if (fromFirearm && attacker.owner === 'legion' && fig.owner !== 'legion' && s.roundFx.dud?.[fig.owner]) {
     delete s.roundFx.dud[fig.owner];
-    s.log.push(`  Dud Round — ${figureType(attacker.typeId).name}'s shot misfires!`);
+    logEvent(s, 'combat.dud', `Dud Round — ${figureType(attacker.typeId).name}'s shot misfires!`, { depth: 1, attackerUid: attacker.uid, targetCorp: fig.owner });
     return;
   }
   const tt = effectiveType(fig, s.rank[fig.owner] ?? 1, boostFor(s, fig));
@@ -782,21 +796,21 @@ function applyHits(s: GameState, attacker: Figure, fig: Figure, hits: number, rn
   if (friendlyTrooper) {
     // Hitting another Doomtrooper costs the attacker's team 3 Promotion Points.
     s.promotion[attacker.owner] = Math.max(0, (s.promotion[attacker.owner] ?? 0) - 3);
-    s.log.push(`Friendly fire! ${figureType(attacker.typeId).name} hit ${figureType(fig.typeId).name} — ${attacker.owner} loses 3 Promotion Points.`);
+    logEvent(s, 'combat.friendly-fire', `Friendly fire! ${figureType(attacker.typeId).name} hit ${figureType(fig.typeId).name} — ${attacker.owner} loses 3 Promotion Points.`, { attackerUid: attacker.uid, targetUid: fig.uid, corp: attacker.owner, ppLoss: 3 });
   }
 
   fig.woundsTaken += dmg;
-  s.log.push(`  → ${figureType(fig.typeId).name} takes ${dmg} wound${dmg === 1 ? '' : 's'} (${tt.strength - fig.woundsTaken}/${tt.strength} left).`);
+  logEvent(s, 'combat.damage', `→ ${figureType(fig.typeId).name} takes ${dmg} wound${dmg === 1 ? '' : 's'} (${tt.strength - fig.woundsTaken}/${tt.strength} left).`, { depth: 1, targetUid: fig.uid, typeId: fig.typeId, wounds: dmg, left: tt.strength - fig.woundsTaken, strength: tt.strength, saves, armor });
   if (fig.woundsTaken >= tt.strength) {
     fig.alive = false;
     if (fig.owner === 'legion' && attacker.owner !== 'legion') {
       const pp = figureType(fig.typeId).promotion;
       s.promotion[attacker.owner] = (s.promotion[attacker.owner] ?? 0) + pp;
       if (fromFirearm) s.firearmKills[attacker.owner] = (s.firearmKills[attacker.owner] ?? 0) + 1;
-      s.log.push(`  ☠ ${figureType(fig.typeId).name} ELIMINATED — ${attacker.owner} +${pp} PP (total ${s.promotion[attacker.owner]}).`);
+      logEvent(s, 'combat.kill', `☠ ${figureType(fig.typeId).name} ELIMINATED — ${attacker.owner} +${pp} PP (total ${s.promotion[attacker.owner]}).`, { depth: 1, targetUid: fig.uid, typeId: fig.typeId, by: attacker.owner, pp, ppTotal: s.promotion[attacker.owner] });
     } else if (fig.owner !== 'legion') {
       s.legionKills += 1;
-      s.log.push(`  ☠ ${figureType(fig.typeId).name} ELIMINATED.`);
+      logEvent(s, 'combat.kill', `☠ ${figureType(fig.typeId).name} ELIMINATED.`, { depth: 1, targetUid: fig.uid, typeId: fig.typeId, by: attacker.owner });
       loseDoomtrooper(s, fig.owner);
     }
   }
@@ -817,7 +831,11 @@ function resolveCombat(s: GameState, attacker: Figure, target: Figure, ft: Figur
       attackerOwner: attacker.owner, attackerName: ft.name, targetName: tt.name, weapon: w.name,
       armor: tt.armor, saves: out.kevlariteSaves, damage: out.damage, killed: out.killed,
     };
-    s.log.push(out.label);
+    logEvent(s, 'combat.roll', out.label, {
+      attackerUid: attacker.uid, attackerOwner: attacker.owner, targetUid: target.uid,
+      weapon: w.name, weaponKind: w.kind, dice: out.dice, color: out.color, hits: out.hits,
+      armor: tt.armor, saves: out.kevlariteSaves, damage: out.damage, killed: out.killed,
+    }, attacker.owner);
     target.woundsTaken += out.damage;
     if (out.killed) {
       target.alive = false;
@@ -825,7 +843,7 @@ function resolveCombat(s: GameState, attacker: Figure, target: Figure, ft: Figur
         const pp = figureType(target.typeId).promotion;
         s.promotion[attacker.owner] = (s.promotion[attacker.owner] ?? 0) + pp;
         if (fromFirearm) s.firearmKills[attacker.owner] = (s.firearmKills[attacker.owner] ?? 0) + 1;
-        s.log.push(`${attacker.owner} earns ${pp} Promotion Point(s) (total ${s.promotion[attacker.owner]}).`);
+        logEvent(s, 'combat.kill', `${figureType(target.typeId).name} eliminated — ${attacker.owner} earns ${pp} Promotion Point(s) (total ${s.promotion[attacker.owner]}).`, { depth: 1, targetUid: target.uid, typeId: target.typeId, by: attacker.owner, pp, ppTotal: s.promotion[attacker.owner] });
       } else if (target.owner !== 'legion') {
         s.legionKills += 1;
         loseDoomtrooper(s, target.owner);
@@ -845,11 +863,11 @@ function resolveCombat(s: GameState, attacker: Figure, target: Figure, ft: Figur
     const r1 = rollDice(rng, w.dice, w.color, reroll);
     s.lastRoll = { dice: r1.dice, color: w.color, hits: r1.hits, label: `${ft.name} fires ${w.name}: ${r1.hits} hit(s)`,
       attackerOwner: attacker.owner, attackerName: ft.name, weapon: w.name, area: w.area };
-    s.log.push(s.lastRoll!.label);
+    logEvent(s, 'combat.roll', s.lastRoll!.label, { attackerUid: attacker.uid, attackerOwner: attacker.owner, targetUid: target.uid, weapon: w.name, weaponKind: w.kind, area: w.area, dice: r1.dice, color: w.color, hits: r1.hits }, attacker.owner);
     applyHits(s, attacker, target, r1.hits, rng, fromFirearm);
     if (second) {
       const r2 = rollDice(rng, w.dice, w.color, reroll);
-      s.log.push(`  second target — ${r2.hits} hit(s)`);
+      logEvent(s, 'combat.roll', `second target — ${r2.hits} hit(s)`, { depth: 1, attackerUid: attacker.uid, attackerOwner: attacker.owner, targetUid: second.uid, weapon: w.name, area: w.area, dice: r2.dice, color: w.color, hits: r2.hits }, attacker.owner);
       applyHits(s, attacker, second, r2.hits, rng, fromFirearm);
     }
     s.rngState = rng.serialize();
@@ -860,7 +878,7 @@ function resolveCombat(s: GameState, attacker: Figure, target: Figure, ft: Figur
   const r = rollDice(rng, w.dice, w.color, reroll);
   s.lastRoll = { dice: r.dice, color: w.color, hits: r.hits, label: `${ft.name} unleashes ${w.name}: ${r.hits} hit(s)`,
     attackerOwner: attacker.owner, attackerName: ft.name, weapon: w.name, area: w.area };
-  s.log.push(s.lastRoll!.label);
+  logEvent(s, 'combat.roll', s.lastRoll!.label, { attackerUid: attacker.uid, attackerOwner: attacker.owner, targetUid: target.uid, weapon: w.name, weaponKind: w.kind, area: w.area, dice: r.dice, color: w.color, hits: r.hits }, attacker.owner);
 
   let affected: { fig: Figure; hits: number }[] = [];
   if (w.area === 'swing') {
@@ -966,21 +984,21 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
     case 'armor-down': {
       const t = toughestLegion(s); if (!t) return false;
       (s.roundFx.armorDown ??= []).push(t.uid);
-      s.log.push(`  ${figureType(t.typeId).name}'s armor is weakened this round.`);
+      logEvent(s, 'card.effect', `${figureType(t.typeId).name}'s armor is weakened this round.`, { depth: 1, effect: 'armor-down', targetUid: t.uid }, corp);
       break;
     }
     case 'attack-legion': {
       const t = toughestLegion(s); if (!t) return false;
       const atk = s.figures.find((g) => g.alive && g.owner === corp);
       const { hits } = rollDice(rng, 3, 'black');
-      s.log.push(`  Control Defense System fires 3 black dice at ${figureType(t.typeId).name} — ${hits} hit(s).`);
+      logEvent(s, 'card.effect', `Control Defense System fires 3 black dice at ${figureType(t.typeId).name} — ${hits} hit(s).`, { depth: 1, effect: 'attack-legion', dice: 3, color: 'black', hits, targetUid: t.uid }, corp);
       if (atk) applyHits(s, atk, t, hits, rng, false);
       break;
     }
     case 'mind-control': {
       const t = toughestLegion(s); if (!t) return false;
       t.actionsLeft = 0; t.stun = 2; // seized — loses its actions
-      s.log.push(`  ${figureType(t.typeId).name} is seized and loses its next actions.`);
+      logEvent(s, 'card.effect', `${figureType(t.typeId).name} is seized and loses its next actions.`, { depth: 1, effect: 'mind-control', targetUid: t.uid }, corp);
       break;
     }
     case 'teleport': {
@@ -994,7 +1012,7 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       let dest: { x: number; y: number } | null = null;
       for (const sec of cands) { dest = teleportDest(s, sec); if (dest) break; }
       if (!dest) break;
-      s.log.push(`  ${figureType(mover.typeId).name} teleports to (${dest.x},${dest.y}).`);
+      logEvent(s, 'card.effect', `${figureType(mover.typeId).name} teleports to (${dest.x},${dest.y}).`, { depth: 1, effect: 'teleport', uid: mover.uid, x: dest.x, y: dest.y }, corp);
       mover.x = dest.x; mover.y = dest.y;
       break;
     }
@@ -1003,7 +1021,7 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       const cur = s.sectors.find((sec) => sec.id === fc.sectorId);
       const adj = cur && s.sectors.find((sec) => sec.id !== fc.sectorId
         && Math.abs(sec.ox - cur.ox) + Math.abs(sec.oy - cur.oy) === cur.size);
-      if (adj) { fc.sectorId = adj.id; s.log.push(`  A face-down Force Card shifts to Sector ${adj.id}.`); }
+      if (adj) { fc.sectorId = adj.id; logEvent(s, 'card.effect', `A face-down Force Card shifts to Sector ${adj.id}.`, { depth: 1, effect: 'move-force-card', sector: adj.id }, corp); }
       break;
     }
     case 'door': {
@@ -1015,7 +1033,7 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       const dx = pair.l.x - pair.t.x, dy = pair.l.y - pair.t.y;
       const dir = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
       s.walls.push({ x: pair.t.x, y: pair.t.y, dir: dir as 'N' | 'E' | 'S' | 'W' });
-      s.log.push(`  A door seals the wall ${dir} of ${figureType(pair.t.typeId).name}.`);
+      logEvent(s, 'card.effect', `A door seals the wall ${dir} of ${figureType(pair.t.typeId).name}.`, { depth: 1, effect: 'door', uid: pair.t.uid, dir }, corp);
       break;
     }
     case 'pp-steal': {
@@ -1023,7 +1041,7 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       const amt = Math.min(5, s.promotion[e] ?? 0);
       s.promotion[e] = (s.promotion[e] ?? 0) - amt;
       s.promotion[corp] = (s.promotion[corp] ?? 0) + 5;
-      s.log.push(`  ${corp} takes 5 Promotion Points (${e} loses ${amt}).`);
+      logEvent(s, 'card.effect', `${corp} takes 5 Promotion Points (${e} loses ${amt}).`, { depth: 1, effect: 'pp-steal', corp, from: e, gained: 5, lost: amt }, corp);
       break;
     }
     case 'card-steal': {
@@ -1031,14 +1049,14 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       const i = Math.max(0, Math.floor(rng.rollDie(eh.length)) - 1); // rollDie(n) returns 1..n
       const taken = eh.splice(i, 1)[0];
       s.doomHands[corp] = [...(s.doomHands[corp] ?? []), taken];
-      s.log.push(`  ${corp} steals a Doomtrooper Card from ${e}.`);
+      logEvent(s, 'card.effect', `${corp} steals a Doomtrooper Card from ${e}.`, { depth: 1, effect: 'card-steal', corp, from: e }, corp);
       break;
     }
     case 'card-discard': {
       const e = enemyCorpOf(s, corp); const eh = e ? s.doomHands[e] : null; if (!eh || !eh.length) break;
       const i = Math.max(0, Math.floor(rng.rollDie(eh.length)) - 1);
       eh.splice(i, 1);
-      s.log.push(`  ${corp} forces ${e} to discard a Doomtrooper Card.`);
+      logEvent(s, 'card.effect', `${corp} forces ${e} to discard a Doomtrooper Card.`, { depth: 1, effect: 'card-discard', corp, from: e }, corp);
       break;
     }
     case 'debuff-move': case 'debuff-firearm': {
@@ -1047,26 +1065,26 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       if (!t) break;
       if (power.effect === 'debuff-move') t.moveDebuff = (t.moveDebuff ?? 0) + 1;
       else t.firearmDiceDown = (t.firearmDiceDown ?? 0) + 1;
-      s.log.push(`  ${figureType(t.typeId).name} is hampered for the rest of the mission.`);
+      logEvent(s, 'card.effect', `${figureType(t.typeId).name} is hampered for the rest of the mission.`, { depth: 1, effect: power.effect, targetUid: t.uid }, corp);
       break;
     }
     case 'no-melee-vs': {
       const e = enemyCorpOf(s, corp); if (!e) return false;
       const set = ((s.missionFx.noMeleeVs ??= {})[e] ??= []);
       for (const v of power.vs ?? []) if (!set.includes(v)) set.push(v);
-      s.log.push(`  ${e} can no longer close-combat ${(power.vs ?? []).join(', ')} this mission.`);
+      logEvent(s, 'card.effect', `${e} can no longer close-combat ${(power.vs ?? []).join(', ')} this mission.`, { depth: 1, effect: 'no-melee-vs', corp: e, vs: power.vs ?? [] }, corp);
       break;
     }
     case 'cap-1': {
       const e = enemyCorpOf(s, corp); if (!e) return false;
       (s.roundFx.cap ??= {})[e] = { ...(s.roundFx.cap?.[e]), perFig: 1 };
-      s.log.push(`  ${e}'s figures may act only once this round.`);
+      logEvent(s, 'card.effect', `${e}'s figures may act only once this round.`, { depth: 1, effect: 'cap-1', corp: e }, corp);
       break;
     }
     case 'lose-extra': {
       const e = enemyCorpOf(s, corp); if (!e) return false;
       s.extraPool[e] = Math.max(0, (s.extraPool[e] ?? 0) - 2);
-      s.log.push(`  ${e} loses 2 Extra Actions.`);
+      logEvent(s, 'card.effect', `${e} loses 2 Extra Actions.`, { depth: 1, effect: 'lose-extra', corp: e, amount: 2 }, corp);
       break;
     }
     case 'false-orders': {
@@ -1074,7 +1092,7 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       let drained = 0;
       for (const f of s.figures.filter((f) => f.alive && f.owner === e)) { while (f.actionsLeft > 0 && drained < 2) { f.actionsLeft--; drained++; } }
       s.extraPool[e] = Math.max(0, (s.extraPool[e] ?? 0) - Math.max(0, 2 - drained));
-      s.log.push(`  ${e}'s pair is misdirected and loses 2 actions.`);
+      logEvent(s, 'card.effect', `${e}'s pair is misdirected and loses 2 actions.`, { depth: 1, effect: 'false-orders', corp: e, amount: 2 }, corp);
       break;
     }
     default: return false;
@@ -1082,7 +1100,7 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
   s.rngState = rng.serialize();
   // discard the played card from the (possibly modified, e.g. after a steal) hand
   s.doomHands[corp] = (s.doomHands[corp] ?? []).filter((c) => c !== action.cardId);
-  s.log.push(`${corp} plays "${power.name}".`);
+  logEvent(s, 'card.play', `${corp} plays "${power.name}".`, { corp, cardId: action.cardId, power: action.power, name: power.name, effect: power.effect }, corp);
   return true;
 }
 
@@ -1103,7 +1121,7 @@ function autoAdvance(s: GameState) {
   const mine = s.figures.filter((f) => f.alive && f.owner === s.activeSeat);
   const anyLeft = mine.some((f) => canTakeAction(s, f) || getSteps(s, f.uid) > 0);
   if (!anyLeft) {
-    s.log.push('No actions remaining — turn passes.');
+    logEvent(s, 'turn.pass', 'No actions remaining — turn passes.', { seat: s.activeSeat }, s.activeSeat);
     endActiveTurn(s);
   }
 }

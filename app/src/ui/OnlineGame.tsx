@@ -3,6 +3,7 @@ import { useGame, useIdentity, SignInBar } from 'digital-boardgame-framework/cli
 import { Board } from './Board';
 import { httpClient, claimSeat, type OnlineParams } from './api';
 import { ReportPanel } from './ReportPanel';
+import { LogLines } from './LogLines';
 import { figureType, effectiveType } from '../game/data';
 import type { GameState, Action } from '../game/types';
 
@@ -142,9 +143,7 @@ export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
 
         <Panel title="Battle Log">
           <div style={{ maxHeight: 240, overflowY: 'auto', fontSize: 12, lineHeight: 1.5 }}>
-            {state.log.slice(-14).reverse().map((l, i) => (
-              <div key={i} style={{ color: l.includes('ELIMINATED') ? '#f66' : l.startsWith('—') ? '#e8c349' : '#bbb' }}>{l}</div>
-            ))}
+            <LogLines entries={state.log.slice(-14).reverse()} />
           </div>
         </Panel>
 

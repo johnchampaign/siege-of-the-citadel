@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { submitReport, downloadLog, type Severity } from './api';
 import type { GameState } from '../game/types';
+import { entryDepth } from './LogLines';
 
 // "Report a Problem" + "Upload / Download Log" — mirrors the sibling boardgame
 // projects. The panel holds the triggers; the form itself opens in a modal.
@@ -52,7 +53,8 @@ const ReportModal: React.FC<{
         mode,
         gameId,
         state,                              // the uploaded log/state snapshot
-        log: state.log?.slice(-400),
+        // human-readable lines for the report body (structured entries live in `state`)
+        log: state.log?.slice(-400).map((e) => `${'  '.repeat(entryDepth(e))}[${e.kind}] ${(e.msg ?? '').trim()}`),
       });
       setStatus({ reportId: r.reportId });
       setMsg('');

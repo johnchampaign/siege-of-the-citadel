@@ -9,6 +9,7 @@ import { useAssets, VASSAL_MODULE_URL, VASSAL_MODULE_PAGE } from './assets';
 import { createOnlineGame, fetchPlayCount, createCloudCampaign, saveCloudCampaign, loadCloudCampaign } from './api';
 import { ReportPanel } from './ReportPanel';
 import { WallEditor } from './WallEditor';
+import { LogLines } from './LogLines';
 import {
   type CampaignState, loadCampaign, saveCampaign, newCampaign, clearCampaign,
   ranks, recordResult, CAMPAIGN_CORPS, suggestedMission, allMissionsDone,
@@ -417,9 +418,7 @@ export const App: React.FC = () => {
 
         <Panel title="Battle Log">
           <div style={{ maxHeight: 220, overflowY: 'auto', fontSize: 12, lineHeight: 1.5 }}>
-            {lastLog.map((l, i) => (
-              <div key={i} style={{ color: l.includes('ELIMINATED') ? '#f66' : l.startsWith('—') ? '#e8c349' : '#bbb' }}>{l}</div>
-            ))}
+            <LogLines entries={lastLog} />
           </div>
         </Panel>
 
@@ -431,7 +430,7 @@ export const App: React.FC = () => {
       {/* win/loss announcement — shown after any combat-result modal is dismissed */}
       {gameOverModal && !resultModal && state.phase === 'over' && (() => {
         const won = (state.winners ?? []).some((w) => w !== 'legion');
-        const reason = [...state.log].reverse().find((l) => l.includes('GAME OVER'))?.replace(/^GAME OVER — /, '') ?? '';
+        const reason = [...state.log].reverse().find((l) => l.kind === 'mission.end' || (l.msg ?? '').includes('GAME OVER'))?.msg?.replace(/^GAME OVER — /, '') ?? '';
         const nextM = inCampaign && campaign && !campaignWon(campaign) ? suggestedMission(campaign) : null;
         return (
           <div onClick={() => setGameOverModal(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001 }}>

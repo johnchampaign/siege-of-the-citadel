@@ -1,3 +1,5 @@
+import type { GameLogEntry } from 'digital-boardgame-framework';
+
 // Core types for Siege of the Citadel.
 // The board is a set of sectors, each an 8x8 grid of squares, laid out on a
 // global coordinate plane. Walls live on the edges between adjacent squares.
@@ -203,7 +205,9 @@ export interface GameState {
   winners: string[] | null;
 
   rngState: number;
-  log: string[];
+  // Structured game log (framework log-format v2). Legacy string[] logs from
+  // schema<=2 snapshots are wrapped by adapter.migrate() via upgradeProseLog.
+  log: GameLogEntry<string>[];
   // transient: result of the most recent dice roll, for UI display
   lastRoll?: {
     dice: number[];
