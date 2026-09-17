@@ -16,3 +16,7 @@ _mc_test.*
 # local editor / OS
 .DS_Store
 .vscode/
+
+# local secrets (Cloudflare token for deploys)
+.env
+.env.local
