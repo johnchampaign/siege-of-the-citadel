@@ -53,31 +53,30 @@ export class KVStore implements SnapshotStore {
     await this.kv.delete(`msg:${gameId}`);
   }
 
+  // ONE key per game: `snap:<id>:latest`. Earlier this also wrote a per-turn copy
+  // (`snap:<id>:t:<turn>`) and pruneSnapshots listed + deleted old ones after
+  // every move — 3 KV operations spent per move on history nothing reads (the
+  // client never calls /history). On the free plan that is the binding limit:
+  // 1,000 writes and 1,000 deletes a day per account. On 2026-09-23 one busy
+  // hour (~370 moves) spent 1,124 writes and 1,521 deletes — ~4 deletes a move,
+  // because KV list() is eventually consistent and kept returning keys already
+  // deleted, so fast play re-deleted the same keys. Deletes (and lists) are now
+  // zero per move and writes are halved.
   async putSnapshot(gameId: string, row: SnapshotRow): Promise<void> {
     await this.putJson(`snap:${gameId}:latest`, row);
-    await this.putJson(`snap:${gameId}:t:${String(row.turn).padStart(6, '0')}`, row);
   }
   async getLatest(gameId: string): Promise<SnapshotRow | null> {
     return this.getJson<SnapshotRow>(`snap:${gameId}:latest`);
   }
+  // No per-turn history is kept, so "history" is just the current state. (The
+  // /history route stays answerable; nothing in the app calls it.)
   async getHistory(gameId: string): Promise<SnapshotRow[]> {
-    const list = await this.kv.list({ prefix: `snap:${gameId}:t:` });
-    const rows: SnapshotRow[] = [];
-    for (const k of list.keys) {
-      const r = await this.getJson<SnapshotRow>(k.name);
-      if (r) rows.push(r);
-    }
-    return rows.sort((a, b) => a.turn - b.turn);
+    const latest = await this.getLatest(gameId);
+    return latest ? [latest] : [];
   }
-  // Snapshot-history cap (GameServer.snapshotHistory): drop per-turn history
-  // keys older than minTurn. The `:latest` key is untouched.
-  async pruneSnapshots(gameId: string, minTurn: number): Promise<void> {
-    const list = await this.kv.list({ prefix: `snap:${gameId}:t:` });
-    for (const k of list.keys) {
-      const turn = parseInt(k.name.slice(k.name.lastIndexOf(':') + 1), 10);
-      if (Number.isFinite(turn) && turn < minTurn) await this.kv.delete(k.name);
-    }
-  }
+  // Nothing to prune — there is only the latest snapshot. Kept as an explicit
+  // no-op so GameServer's snapshotHistory cap costs no KV operations.
+  async pruneSnapshots(_gameId: string, _minTurn: number): Promise<void> {}
 
   async putReport(row: BugReportRow): Promise<void> {
     await this.putJson(`report:${row.reportId}`, row);
