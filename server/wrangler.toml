@@ -10,3 +10,10 @@ SITE_ORIGIN = "https://siege-of-the-citadel.pages.dev"
 [[kv_namespaces]]
 binding = "SIEGE_KV"
 id = "00990338113344eb880c726199707577"
+
+# Games, snapshots and chat (KV above keeps bug reports + campaign saves).
+# Schema: node_modules/digital-boardgame-framework/d1/schema.sql
+[[d1_databases]]
+binding = "SIEGE_DB"
+database_name = "siege-of-the-citadel"
+database_id = "8ff919aa-3cc1-47d9-95cf-7de500c603cf"

@@ -1,11 +1,12 @@
-import { GameServer, verifyIdentityToken, type Jwks } from 'digital-boardgame-framework/server';
+import { GameServer, verifyIdentityToken, type Jwks, type D1DatabaseLike } from 'digital-boardgame-framework/server';
 import { jsonCodec, RandomAI } from 'digital-boardgame-framework';
 import { adapter, createInitialState } from '../app/src/game/adapter';
 import type { GameState, Action } from '../app/src/game/types';
-import { KVStore } from './kv-store';
+import { SiegeStore } from './store';
 
 export interface Env {
-  SIEGE_KV: KVNamespace;
+  SIEGE_KV: KVNamespace;   // bug reports + campaign cloud-saves
+  SIEGE_DB: D1DatabaseLike; // games, snapshots, chat (see store.ts)
   SITE_ORIGIN?: string; // where the playable client is hosted (for share links)
   RATINGS_INGEST_KEY?: string; // shared secret matching the hub's; enables ranked play
 }
@@ -49,7 +50,7 @@ function makeServer(env: Env, origin: string) {
     snapshotHistory: 20,   // cap per-game snapshot history (framework >=0.32)
     adapter,
     codec: jsonCodec<GameState>(),
-    store: new KVStore(env.SIEGE_KV),
+    store: new SiegeStore(env.SIEGE_DB, env.SIEGE_KV),
     // Server-driven AI seats (rated leaderboard opponent). Identity is
     // ai:siege-of-the-citadel:random; shows as "🤖 AI (random)".
     aiControllers: { random: new RandomAI<GameState, Action, string>() },
