@@ -52,13 +52,16 @@ function makeServer(env: Env, origin: string) {
     adapter,
     codec: jsonCodec<GameState>(),
     store: new SiegeStore(env.SIEGE_DB, env.SIEGE_KV),
-    // Server-driven AI seats (rated leaderboard opponent). New games get the
-    // tactical AI (identity ai:siege-of-the-citadel:tactical, "🤖 AI (tactical)").
-    // 'random' stays registered so games created before it keep being driven
-    // by the opponent they were rated against.
+    // Server-driven AI seats (rated leaderboard opponent). The key is the AI's
+    // rating identity (ai:siege-of-the-citadel:<key>, "🤖 AI (<key>)"), named per
+    // the cross-game convention: 'standard', bumped to 'standard@2', @3… when the
+    // AI's play changes, so its rating restarts instead of blending versions.
+    // Every key ever shipped stays registered, so games created under it keep
+    // being driven by the opponent they were rated against.
     aiControllers: {
-      tactical: new SiegeAI(),
-      random: new RandomAI<GameState, Action, string>(),
+      standard: new SiegeAI(),    // the tactical AI (game/ai.ts) — new games
+      tactical: new SiegeAI(),    // same AI, its name before 2026-09-29's rename
+      random: new RandomAI<GameState, Action, string>(), // the original opponent
     },
     // Best-effort play counter: createGame fires an 'online' start beacon to the
     // hub, and the move that ends a game fires a finish beacon (framework >=0.53).
@@ -100,7 +103,7 @@ export default {
         if (!ai && body.aiSide) {
           const aiIsLegion = body.aiSide === 'legion';
           ai = Object.fromEntries(
-            initialState.seats.filter((s) => s.isLegion === aiIsLegion).map((s) => [s.id, 'tactical']),
+            initialState.seats.filter((s) => s.isLegion === aiIsLegion).map((s) => [s.id, 'standard']),
           );
         }
         // invites maps each seat -> a full shareable play URL (gameUrl applied).
