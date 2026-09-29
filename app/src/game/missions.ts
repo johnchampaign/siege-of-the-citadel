@@ -88,12 +88,14 @@ const trial = build({
   id: 'trial',
   name: 'Trial by Fire (Training)',
   briefing: 'A fast-play training mission. Two corporation teams strike in while one player commands the Dark Legion. Learn movement, line of sight and combat.',
-  objective: 'Corporations: eliminate every Dark Legion creature. Dark Legion: eliminate all Doomtroopers.',
+  objective: 'Corporations: eliminate every Dark Legion creature within 10 rounds. Dark Legion: eliminate all Doomtroopers, or hold out until the time limit.',
   sectorDefs: [[1, 'map1.jpg', 0, 0], [2, 'map2.jpg', 1, 0], [4, 'map4.jpg', 0, 1], [5, 'map5.jpg', 1, 1], [3, 'map3.jpg', 2, 1]],
   citadel: { cx: 16, cy: 8 }, // training: corner where sectors 2,5,3 (+ missing NE) meet, per the setup diagram
   trooperEntrances: [{ x: 1, y: 0 }, { x: 2, y: 0 }, { x: 9, y: 0 }, { x: 10, y: 0 }],
   legionEntrances: [{ x: 15, y: 3 }, { x: 11, y: 7 }, { x: 19, y: 8 }, { x: 15, y: 12 }], // the Citadel doorway gaps
-  timeLimitRounds: 99,
+  // 10 rounds, like the real missions (4–9), so a first game always has an
+  // ending. Self-play: competent troopers finish in a median 8 rounds (90% by 12).
+  timeLimitRounds: 10,
   forceCardSectors: [['fc1', 1], ['fc2', 2], ['fc4', 4], ['fc5', 5], ['fc7', 3]], // RAW: cards 1,2,4,5,7
   corporations: ['Bauhaus', 'Imperial'],
   win: { kind: 'eliminate-all' },
@@ -151,7 +153,7 @@ const m4 = build({
   briefing: 'The Dark Legion is massing near the east tower. Break their lines and wipe out the horde.',
   objective: 'Eliminate every Dark Legion figure on the board.',
   sectorDefs: [[7, 'map7.jpg', 1, 0], [8, 'map8.jpg', 2, 0], [3, 'map3.jpg', 3, 0], [5, 'map5.jpg', 0, 1], [2, 'map2.jpg', 1, 1], [6, 'map6.jpg', 2, 1], [4, 'map4.jpg', 0, 2], [1, 'map1.jpg', 1, 2]],
-  trooperEntrances: [{ x: 0, y: 11 }, { x: 8, y: 23 }, { x: 9, y: 23 }, { x: 16, y: 23 }],
+  trooperEntrances: [{ x: 0, y: 11 }, { x: 8, y: 23 }, { x: 9, y: 23 }, { x: 15, y: 23 }], // was (16,23): off the board, walled in — the trooper could never move
   legionEntrances: [{ x: 12, y: 8 }, { x: 20, y: 8 }],
   timeLimitRounds: 8,
   forceCardSectors: [['fc1', 7], ['fc2', 8], ['fc4', 3], ['fc8', 5], ['fc5', 2], ['fc12', 6], ['fc7', 4], ['fc9', 1]],
