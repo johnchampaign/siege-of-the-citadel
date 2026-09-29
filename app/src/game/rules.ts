@@ -63,17 +63,33 @@ const DIRS: Record<string, [number, number]> = {
   N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0],
 };
 
+const DIR_IDX: Record<string, number> = { N: 0, E: 1, S: 2, W: 3 };
+const OPP: Record<string, 'N' | 'E' | 'S' | 'W'> = { N: 'S', S: 'N', E: 'W', W: 'E' };
+const wallKey = (x: number, y: number, d: number) => ((y + 64) * 512 + (x + 64)) * 4 + d;
+
+/** Hash index of a walls array, so a lookup is O(1) instead of a scan over
+ *  every wall (line of sight does several per sampled square, and the AI does
+ *  thousands of sight checks per decision). Walls arrays are only ever replaced
+ *  or appended to (the Remote Controlled Door card pushes one), never edited in
+ *  place, so the length is enough to detect staleness. */
+const wallIndex = new WeakMap<Wall[], { n: number; set: Set<number> }>();
+function wallSet(walls: Wall[]): Set<number> {
+  let e = wallIndex.get(walls);
+  if (!e || e.n !== walls.length) {
+    const set = new Set<number>();
+    for (const w of walls) set.add(wallKey(w.x, w.y, DIR_IDX[w.dir]));
+    e = { n: walls.length, set };
+    wallIndex.set(walls, e);
+  }
+  return e.set;
+}
+
 /** Is there a wall on the edge between (x,y) and the orthogonal neighbor in dir?
  *  Walls are stored once; we check both orientations. */
 export function wallBetween(walls: Wall[], x: number, y: number, dir: 'N' | 'E' | 'S' | 'W'): boolean {
   const [dx, dy] = DIRS[dir];
-  const nx = x + dx, ny = y + dy;
-  const opp: Record<string, 'N' | 'E' | 'S' | 'W'> = { N: 'S', S: 'N', E: 'W', W: 'E' };
-  return walls.some(
-    (w) =>
-      (w.x === x && w.y === y && w.dir === dir) ||
-      (w.x === nx && w.y === ny && w.dir === opp[dir]),
-  );
+  const set = wallSet(walls);
+  return set.has(wallKey(x, y, DIR_IDX[dir])) || set.has(wallKey(x + dx, y + dy, DIR_IDX[OPP[dir]]));
 }
 
 /** Does a wall block a single 8-directional step from (x,y) to adjacent (tx,ty)?

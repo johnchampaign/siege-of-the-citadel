@@ -8,10 +8,10 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "tsx src/game/engine.test.ts"
+    "test": "tsx src/game/engine.test.ts && tsx src/game/ai.test.ts"
   },
   "dependencies": {
-    "digital-boardgame-framework": "^0.51.1",
+    "digital-boardgame-framework": "^0.53.0",
     "fflate": "^0.8.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

@@ -1,6 +1,7 @@
 import { GameServer, verifyIdentityToken, type Jwks, type D1DatabaseLike } from 'digital-boardgame-framework/server';
 import { jsonCodec, RandomAI } from 'digital-boardgame-framework';
 import { adapter, createInitialState } from '../app/src/game/adapter';
+import { SiegeAI } from '../app/src/game/ai';
 import type { GameState, Action } from '../app/src/game/types';
 import { SiegeStore } from './store';
 
@@ -51,10 +52,16 @@ function makeServer(env: Env, origin: string) {
     adapter,
     codec: jsonCodec<GameState>(),
     store: new SiegeStore(env.SIEGE_DB, env.SIEGE_KV),
-    // Server-driven AI seats (rated leaderboard opponent). Identity is
-    // ai:siege-of-the-citadel:random; shows as "🤖 AI (random)".
-    aiControllers: { random: new RandomAI<GameState, Action, string>() },
-    // Best-effort play counter: createGame fires an 'online' beacon to the hub.
+    // Server-driven AI seats (rated leaderboard opponent). New games get the
+    // tactical AI (identity ai:siege-of-the-citadel:tactical, "🤖 AI (tactical)").
+    // 'random' stays registered so games created before it keep being driven
+    // by the opponent they were rated against.
+    aiControllers: {
+      tactical: new SiegeAI(),
+      random: new RandomAI<GameState, Action, string>(),
+    },
+    // Best-effort play counter: createGame fires an 'online' start beacon to the
+    // hub, and the move that ends a game fires a finish beacon (framework >=0.53).
     playBeacon: { appId: 'siege-of-the-citadel' },
     gameUrl: (gameId, token) => `${site}/?game=${gameId}&token=${token}`,
     // Ranked play: verify hub identity tokens (claimSeat) + auto-report results.
@@ -93,7 +100,7 @@ export default {
         if (!ai && body.aiSide) {
           const aiIsLegion = body.aiSide === 'legion';
           ai = Object.fromEntries(
-            initialState.seats.filter((s) => s.isLegion === aiIsLegion).map((s) => [s.id, 'random']),
+            initialState.seats.filter((s) => s.isLegion === aiIsLegion).map((s) => [s.id, 'tactical']),
           );
         }
         // invites maps each seat -> a full shareable play URL (gameUrl applied).

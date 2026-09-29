@@ -119,13 +119,20 @@ export function createInitialState(opts: NewGameOpts): GameState {
 
 // ---------- helpers ----------
 
+/** Deep copy for a new state — except `walls`, which is shared. Walls are
+ *  ~70% of the state and fixed for the whole mission; the one effect that adds
+ *  a wall (Remote Controlled Door) replaces the array instead of pushing, so a
+ *  shared array is never mutated. */
 function clone(s: GameState): GameState {
-  return JSON.parse(JSON.stringify(s));
+  const { walls, ...rest } = s;
+  const c = JSON.parse(JSON.stringify(rest)) as GameState;
+  c.walls = walls;
+  return c;
 }
 
 /** Can this figure begin another action — from its base actions, or (troopers
  *  only) by drawing from the team Extra Action pool up to the 4-action cap? */
-function canTakeAction(s: GameState, f: Figure): boolean {
+export function canTakeAction(s: GameState, f: Figure): boolean {
   // Combat Neurosis / Misinterpreted Orders cap a corporation's actions this round.
   const cap = s.roundFx.cap?.[f.owner];
   if (cap) {
@@ -150,7 +157,7 @@ function rngFor(s: GameState): Rng {
   return Rng.fromState(s.rngState);
 }
 
-function moveRange(s: GameState, fig: Figure): number {
+export function moveRange(s: GameState, fig: Figure): number {
   const ft = figureType(fig.typeId);
   // Mishima troopers move 4; everyone else 3. Hurt Leg slows a figure.
   const base = ft.faction === 'Mishima' && ft.isTrooper ? 4 : 3;
@@ -267,7 +274,7 @@ function applyEventEffect(s: GameState, ev: { effect: string; boost?: string[] }
 }
 
 /** Does figure `fig` get the round's +1-action boost (from an Event/boost card)? */
-function boostFor(s: GameState, fig: Figure): boolean {
+export function boostFor(s: GameState, fig: Figure): boolean {
   return !!s.roundFx.boost && s.roundFx.boost.includes(fig.typeId);
 }
 
@@ -283,7 +290,7 @@ function rerollFor(s: GameState, attacker: Figure, kind: string): number {
 }
 
 /** A figure's effective Armor for this round (Weak Spot lowers a Legion figure). */
-function armorOf(s: GameState, fig: Figure, tt: { armor: number }): number {
+export function armorOf(s: GameState, fig: Figure, tt: { armor: number }): number {
   return Math.max(0, tt.armor - (s.roundFx.armorDown?.includes(fig.uid) ? 1 : 0));
 }
 
@@ -372,7 +379,7 @@ function livingTroopers(s: GameState): Figure[] {
   return s.figures.filter((f) => f.alive && f.owner !== 'legion');
 }
 
-function totalPromotion(s: GameState): number {
+export function totalPromotion(s: GameState): number {
   return Object.values(s.promotion).reduce((a, b) => a + b, 0);
 }
 
@@ -425,7 +432,7 @@ function setWinner(s: GameState, winners: string[], reason: string) {
 }
 
 /** Has the objective that gates escape been met (for promotion+escape missions)? */
-function escapeAllowed(s: GameState): boolean {
+export function escapeAllowed(s: GameState): boolean {
   if (s.win.kind === 'escape') return true;
   if (s.win.kind === 'promotion' && s.win.escape) return totalPromotion(s) >= s.win.points;
   return false;
@@ -486,7 +493,7 @@ function resolveTimeLimit(s: GameState) {
 // ---------- in-progress move steps ----------
 // We track per-figure remaining move steps in a transient field stored on the
 // state so it survives serialization within a turn.
-function getSteps(s: GameState, uid: string): number {
+export function getSteps(s: GameState, uid: string): number {
   const m = (s as any)._steps as Record<string, number> | undefined;
   return m?.[uid] ?? 0;
 }
@@ -534,7 +541,7 @@ export const adapter: GameAdapter<GameState, Action, string> = {
 
   viewFor(s, viewer) {
     if (!s) return s;
-    const v: GameState = JSON.parse(JSON.stringify(s));
+    const v: GameState = clone(s);
     // Never leak the RNG state to any client — it would let them predict rolls.
     v.rngState = 0;
     // A player's Doomtrooper hand and Secondary Mission are secret to others.
@@ -1032,7 +1039,7 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       if (!pair) return false;
       const dx = pair.l.x - pair.t.x, dy = pair.l.y - pair.t.y;
       const dir = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
-      s.walls.push({ x: pair.t.x, y: pair.t.y, dir: dir as 'N' | 'E' | 'S' | 'W' });
+      s.walls = [...s.walls, { x: pair.t.x, y: pair.t.y, dir: dir as 'N' | 'E' | 'S' | 'W' }]; // new array: walls are shared between states (see clone)
       logEvent(s, 'card.effect', `A door seals the wall ${dir} of ${figureType(pair.t.typeId).name}.`, { depth: 1, effect: 'door', uid: pair.t.uid, dir }, corp);
       break;
     }
