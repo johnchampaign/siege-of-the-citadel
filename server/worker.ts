@@ -63,6 +63,11 @@ function makeServer(env: Env, origin: string) {
       tactical: new SiegeAI(),    // same AI, its name before 2026-09-29's rename
       random: new RandomAI<GameState, Action, string>(), // the original opponent
     },
+    // In vs-AI games all the Doomtrooper corps are AI and move back to back;
+    // give each corp's turn its own request (bounded CPU per request). The
+    // client's useGame refetches right away on aiPending, so the corps' turns
+    // land one after another (framework >=0.55).
+    aiSlice: { perSeat: true },
     // Best-effort play counter: createGame fires an 'online' start beacon to the
     // hub, and the move that ends a game fires a finish beacon (framework >=0.53).
     playBeacon: { appId: 'siege-of-the-citadel' },

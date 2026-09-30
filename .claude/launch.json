@@ -4,9 +4,23 @@
     {
       "name": "siege",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "app", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "app",
+        "run",
+        "dev"
+      ],
       "port": 5173,
       "autoPort": true
+    },
+    {
+      "name": "siege-local-api",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd app && VITE_API_URL=http://localhost:8799 npx vite --port 5174 --strictPort"
+      ],
+      "port": 5174
     }
   ]
 }
