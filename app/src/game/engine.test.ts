@@ -308,6 +308,16 @@ async function playOut(seed: number): Promise<GameState> {
     check(`door: destroyed only by 3+ hits (${destroyed} broken / ${survived} held of 60)`, destroyed > 0 && survived > 0);
   }
 
+  // --- states share log entries (clone), but a new action never alters an older state's log ---
+  {
+    let g = createInitialState({ missionId: 'trial', seed: 61 });
+    g = adapter.applyAction(g, { type: 'start' }, g.seats[0].id);
+    const before = g.log.length, snapshot = JSON.stringify(g.log);
+    const next = adapter.applyAction(g, { type: 'end-turn' }, g.activeSeat!);
+    check('clone: the new state logged more', next.log.length > before);
+    check('clone: the previous state\'s log is untouched', g.log.length === before && JSON.stringify(g.log) === snapshot);
+  }
+
   // --- walls block movement geometry ---
   {
     const wallE = [{ x: 3, y: 3, dir: 'E' as const }]; // edge between (3,3) and (4,3)

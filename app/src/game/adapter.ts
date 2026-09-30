@@ -119,14 +119,18 @@ export function createInitialState(opts: NewGameOpts): GameState {
 
 // ---------- helpers ----------
 
-/** Deep copy for a new state — except `walls`, which is shared. Walls are
- *  ~70% of the state and fixed for the whole mission; the one effect that adds
- *  a wall (Remote Controlled Door) replaces the array instead of pushing, so a
- *  shared array is never mutated. */
+/** Copy for a new state, deep except for two big, effectively immutable parts:
+ *  - `walls` is shared: fixed for the mission, and the only changes (Remote
+ *    Controlled Door placed/destroyed) replace the array, never mutate it.
+ *  - `log` gets a new array of the SAME entry objects: entries are never edited
+ *    once written (appendGameLog only pushes and trims the array), and by the
+ *    late game the log is ~75% of the state — deep-copying it twice per engine
+ *    step was most of a server AI turn's CPU. */
 function clone(s: GameState): GameState {
-  const { walls, ...rest } = s;
+  const { walls, log, ...rest } = s;
   const c = JSON.parse(JSON.stringify(rest)) as GameState;
   c.walls = walls;
+  c.log = log.slice();
   return c;
 }
 
