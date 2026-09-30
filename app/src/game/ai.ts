@@ -707,6 +707,7 @@ function pickCard(c: Ctx, legal: Action[], mine: Figure[]): Action | null {
 const DOOR_MIN_GAIN = 2;       // net value a door must add to be worth the card
 const DOOR_DELAY_W = 0.15;     // per extra square the Legion must walk to reach us
 const DOOR_DELAY_CAP = 10;     // (per figure — a sealed-off figure isn't worth infinity)
+const DOOR_MAX_SPOTS = 10;     // gaps scored per decision (~0.7ms each on the server): the nearest
 
 /** Our side's picture with a given walls array: danger to our troopers next
  *  turn, how far they are from the objective, and how far each Legion figure
@@ -735,9 +736,17 @@ function bestDoor(c: Ctx, options: Extract<Action, { type: 'play-doom-card' }>[]
   const nearAny = (x: number, y: number, fs: Figure[], r: number) => fs.some((f) => dist(x, y, f.x, f.y) <= r);
   const base = doorPicture(c, c.s.walls, mine);
   let best: { a: Extract<Action, { type: 'play-doom-card' }>; v: number } | null = null;
-  for (const a of options) {
+  // Only gaps near both sides, and of those the DOOR_MAX_SPOTS closest to them
+  // (nearest trooper + nearest Legion figure) — the ones most likely to matter.
+  const nearest = (x: number, y: number, fs: Figure[]) => Math.min(...fs.map((f) => dist(x, y, f.x, f.y)));
+  const spots = options
+    .filter((a) => a.x !== undefined && a.y !== undefined && a.dir && nearAny(a.x, a.y, mine, 8) && nearAny(a.x, a.y, enemies, 12))
+    .map((a) => ({ a, d: nearest(a.x!, a.y!, mine) + nearest(a.x!, a.y!, enemies) }))
+    .sort((p, q) => p.d - q.d)
+    .slice(0, DOOR_MAX_SPOTS)
+    .map((e) => e.a);
+  for (const a of spots) {
     if (a.x === undefined || a.y === undefined || !a.dir) continue;
-    if (!nearAny(a.x, a.y, mine, 8) || !nearAny(a.x, a.y, enemies, 12)) continue;
     const pic = doorPicture(c, [...c.s.walls, { x: a.x, y: a.y, dir: a.dir, door: true }], mine);
     let held = 0;
     for (const [uid, d0] of base.walk) held += Math.min(DOOR_DELAY_CAP, Math.max(0, (pic.walk.get(uid) ?? d0) - d0));
