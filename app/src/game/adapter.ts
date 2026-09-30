@@ -574,7 +574,13 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       const card = DOOM_CARDS[cardId];
       if (!card) continue;
       card.powers.forEach((p, power) => {
-        if (powerPlayable(s, actor, p)) actions.push({ type: 'play-doom-card', corp: actor, cardId, power });
+        if (!powerPlayable(s, actor, p)) return;
+        // "Freely chosen Legion figure" (Control Defense System, Commanding Voice,
+        // Weak Spot): one action per possible target, so the player picks it.
+        if (p.target === 'legion') {
+          for (const t of s.figures) if (t.alive && t.owner === 'legion')
+            actions.push({ type: 'play-doom-card', corp: actor, cardId, power, targetUid: t.uid });
+        } else actions.push({ type: 'play-doom-card', corp: actor, cardId, power });
       });
     }
 
@@ -994,13 +1000,13 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
     case 'phase': s.roundFx.phase = corp; break;
     case 'dud': (s.roundFx.dud ??= {})[corp] = true; break;
     case 'armor-down': {
-      const t = toughestLegion(s); if (!t) return false;
+      const t = chosenLegion(s, action.targetUid); if (!t) return false;
       (s.roundFx.armorDown ??= []).push(t.uid);
       logEvent(s, 'card.effect', `${figureType(t.typeId).name}'s armor is weakened this round.`, { depth: 1, effect: 'armor-down', targetUid: t.uid }, corp);
       break;
     }
     case 'attack-legion': {
-      const t = toughestLegion(s); if (!t) return false;
+      const t = chosenLegion(s, action.targetUid); if (!t) return false;
       const atk = s.figures.find((g) => g.alive && g.owner === corp);
       const { hits } = rollDice(rng, 3, 'black');
       logEvent(s, 'card.effect', `Control Defense System fires 3 black dice at ${figureType(t.typeId).name} — ${hits} hit(s).`, { depth: 1, effect: 'attack-legion', dice: 3, color: 'black', hits, targetUid: t.uid }, corp);
@@ -1008,7 +1014,7 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       break;
     }
     case 'mind-control': {
-      const t = toughestLegion(s); if (!t) return false;
+      const t = chosenLegion(s, action.targetUid); if (!t) return false;
       t.actionsLeft = 0; t.stun = 2; // seized — loses its actions
       logEvent(s, 'card.effect', `${figureType(t.typeId).name} is seized and loses its next actions.`, { depth: 1, effect: 'mind-control', targetUid: t.uid }, corp);
       break;
@@ -1114,6 +1120,14 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
   s.doomHands[corp] = (s.doomHands[corp] ?? []).filter((c) => c !== action.cardId);
   logEvent(s, 'card.play', `${corp} plays "${power.name}".`, { corp, cardId: action.cardId, power: action.power, name: power.name, effect: power.effect }, corp);
   return true;
+}
+
+/** The Legion figure a "freely chosen Legion figure" power targets: the one the
+ *  player picked (must be a living Legion figure), or — for an action with no
+ *  target, e.g. from an older cached client — the toughest one, as before. */
+function chosenLegion(s: GameState, targetUid: string | undefined): Figure | undefined {
+  if (targetUid === undefined) return toughestLegion(s);
+  return s.figures.find((f) => f.uid === targetUid && f.alive && f.owner === 'legion');
 }
 
 /** Toughest (highest-armor) living Legion figure — the default sabotage target. */

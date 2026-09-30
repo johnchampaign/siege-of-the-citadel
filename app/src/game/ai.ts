@@ -586,17 +586,41 @@ function pickCard(c: Ctx, legal: Action[], mine: Figure[]): Action | null {
   const legionStillToAct = s.drawOrder.includes('legion');
   const attacks = legal.filter((a): a is Extract<Action, { type: 'attack' }> => a.type === 'attack');
   const turnStart = mine.every((f) => (f.actionsTaken ?? 0) === 0);
-  for (const a of legal) {
-    if (a.type !== 'play-doom-card') continue;
+  type CardAction = Extract<Action, { type: 'play-doom-card' }>;
+  const cardActions = legal.filter((a): a is CardAction => a.type === 'play-doom-card');
+  const effectOf = (a: CardAction) => DOOM_CARDS[a.cardId]?.powers[a.power]?.effect;
+  // Powers aimed at a "freely chosen Legion figure" arrive as one action per
+  // target: score each target, play the best if it clears `min`.
+  const targetOf = (a: CardAction) => (a.targetUid ? s.figures.find((g) => g.uid === a.targetUid) : toughestLegion(s));
+  const bestTarget = (effect: string, score: (t: Figure) => number, min: number): CardAction | null => {
+    let best: CardAction | null = null, bestV = min;
+    for (const a of cardActions) {
+      if (effectOf(a) !== effect) continue;
+      const t = targetOf(a);
+      if (!t) continue;
+      const v = score(t);
+      if (v >= bestV) { best = a; bestV = v; }
+    }
+    return best;
+  };
+  const near = (t: Figure) => mine.some((f) => dist(f.x, f.y, t.x, t.y) <= 10);
+  for (const a of cardActions) {
     const p = DOOM_CARDS[a.cardId]?.powers[a.power];
     if (!p) continue;
-    const tough = toughestLegion(s);
+    let pick: CardAction | null = null;
     switch (p.effect) {
       case 'attack-legion':
-        if (tough && armorOf(s, tough, typeOf(c, tough)) <= 2 && (isObjective(s, tough) || (DANGER[tough.typeId] ?? 0) >= 1)) return a;
+        // Control Defense System: 3 black dice at whichever figure is worth most
+        // to kill (the boss, the dangerous shooter) — not armor it can't beat.
+        pick = bestTarget('attack-legion', (t) =>
+          outcome(3, 'black', armorOf(s, t, typeOf(c, t)), 0, 'white', 1).pKill * legionValue(c, t), 1);
+        if (pick) return pick;
         break;
       case 'mind-control':
-        if (tough && (DANGER[tough.typeId] ?? 0) >= 2 && mine.some((f) => dist(f.x, f.y, tough.x, tough.y) <= 10)) return a;
+        // Commanding Voice: seize the most dangerous nearby figure, if it has yet to act.
+        if (!legionStillToAct) break;
+        pick = bestTarget('mind-control', (t) => (t.actionsLeft > 0 && near(t) ? DANGER[t.typeId] ?? 0 : 0), 2);
+        if (pick) return pick;
         break;
       case 'heal':
         if (mine.some((f) => f.woundsTaken >= 2)) return a;
@@ -611,7 +635,10 @@ function pickCard(c: Ctx, legal: Action[], mine: Figure[]): Action | null {
         if (legionStillToAct && mine.reduce((n, f) => n + exposure(c, f, f.x, f.y, -1), 0) >= 3) return a;
         break;
       case 'armor-down':
-        if (tough && typeOf(c, tough).armor >= 1 && attacks.some((x) => x.targetUid === tough.uid)) return a;
+        // Weak Spot: on the most valuable armored figure we can attack right now.
+        pick = bestTarget('armor-down', (t) =>
+          (typeOf(c, t).armor >= 1 && attacks.some((x) => x.targetUid === t.uid) ? legionValue(c, t) : 0), 1);
+        if (pick) return pick;
         break;
       case 'reroll':
         if (attacks.some((x) => { const t = s.figures.find((g) => g.uid === x.targetUid); return !!t && isObjective(s, t); })) return a;

@@ -547,10 +547,17 @@ const TurnAidsPanel: React.FC<{ state: GameState; corp: string; submit: (a: Acti
   const secId = state.secondary[corp];
   const sec = secId && secId !== 'hidden' ? SECONDARY_MISSIONS[secId] : null;
 
-  // Which (cardId, power) combos the engine currently allows.
-  const playable = new Set(
-    legal.filter((a) => a.type === 'play-doom-card').map((a: any) => `${a.cardId}:${a.power}`),
-  );
+  // Which (cardId, power) combos the engine currently allows. Powers aimed at a
+  // "freely chosen Legion figure" come as one legal action per target.
+  const cardActions = legal.filter((a): a is Extract<Action, { type: 'play-doom-card' }> => a.type === 'play-doom-card');
+  const playable = new Set(cardActions.map((a) => `${a.cardId}:${a.power}`));
+  const targetsFor = (cid: string, pi: number) =>
+    cardActions.filter((a) => a.cardId === cid && a.power === pi && a.targetUid)
+      .map((a) => state.figures.find((f) => f.uid === a.targetUid)!)
+      .filter(Boolean)
+      .sort((a, b) => figureType(b.typeId).armor - figureType(a.typeId).armor);
+  // The targeted power awaiting a pick: `${cardId}:${power}`.
+  const [picking, setPicking] = useState<string | null>(null);
 
   return (
     <Panel title={`${corp} — Turn Resources`}>
@@ -568,14 +575,40 @@ const TurnAidsPanel: React.FC<{ state: GameState; corp: string; submit: (a: Acti
               <div key={cid + i} style={{ marginBottom: 6, borderLeft: '2px solid #444', paddingLeft: 6 }}>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                   {c.powers.map((p, pi) => {
-                    const ok = playable.has(`${cid}:${pi}`);
+                    const key = `${cid}:${pi}`;
+                    const ok = playable.has(key);
+                    const targeted = p.target === 'legion';
                     return (
-                      <button key={pi} style={{ ...btn, fontSize: 11, padding: '3px 7px', opacity: ok ? 1 : 0.4 }}
-                        disabled={!ok} onClick={() => submit({ type: 'play-doom-card', corp, cardId: cid, power: pi })}
-                        title={ok ? '' : 'No valid target right now'}>▶ {p.name}</button>
+                      <button key={pi} style={{ ...btn, fontSize: 11, padding: '3px 7px', opacity: ok ? 1 : 0.4, outline: picking === key ? '1px solid #e8c349' : undefined }}
+                        disabled={!ok}
+                        onClick={() => targeted
+                          ? setPicking(picking === key ? null : key)
+                          : submit({ type: 'play-doom-card', corp, cardId: cid, power: pi })}
+                        title={ok ? (targeted ? 'Choose a Legion figure' : '') : 'No valid target right now'}>▶ {p.name}{targeted ? '…' : ''}</button>
                     );
                   })}
                 </div>
+                {picking?.startsWith(`${cid}:`) && (() => {
+                  const pi = Number(picking.split(':')[1]);
+                  return (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ fontSize: 11, color: '#e8c349', marginBottom: 2 }}>{c.powers[pi].name} — choose a Legion figure:</div>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {targetsFor(cid, pi).map((t) => {
+                          const ft = figureType(t.typeId);
+                          return (
+                            <button key={t.uid} style={{ ...btn, fontSize: 11, padding: '2px 6px' }}
+                              onClick={() => { setPicking(null); submit({ type: 'play-doom-card', corp, cardId: cid, power: pi, targetUid: t.uid }); }}
+                              title={`armor ${ft.armor}`}>
+                              {ft.name}{t.tag ? ' ★' : ''} <span style={{ color: '#888' }}>({t.x},{t.y}) · A{ft.armor}</span>
+                            </button>
+                          );
+                        })}
+                        <button style={{ ...btn, fontSize: 11, padding: '2px 6px', color: '#888' }} onClick={() => setPicking(null)}>cancel</button>
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div style={{ fontSize: 10, color: '#888', marginTop: 1 }}>{c.blurb}</div>
               </div>
             );

@@ -175,6 +175,31 @@ async function playOut(seed: number): Promise<GameState> {
     check('pass recorded as a flag, not 4 fake actions', fig.passed === true && fig.actionsTaken === 0);
   }
 
+  // --- "freely chosen Legion figure" cards: the player picks the target ---
+  {
+    let g = createInitialState({ missionId: 'trial', seed: 31 });
+    g = adapter.applyAction(g, { type: 'start' }, g.seats[0].id);
+    g.activeSeat = 'Bauhaus'; g.drawOrder = [];
+    g.doomHands.Bauhaus = ['cds_rcd', 'cv_si'];
+    g.figures.push(
+      { uid: 'ez', typeId: 'ezoghoul', owner: 'legion', x: 20, y: 12, woundsTaken: 0, actionsLeft: 3, actionsTaken: 0, alive: true },
+      { uid: 'lg', typeId: 'legionnaire', owner: 'legion', x: 5, y: 12, woundsTaken: 0, actionsLeft: 2, actionsTaken: 0, alive: true },
+    );
+    const cds = adapter.legalActions(g, 'Bauhaus').filter((a) => a.type === 'play-doom-card' && a.cardId === 'cds_rcd' && a.power === 0) as any[];
+    check('targeted card: one legal action per Legion figure', cds.length === 2 && new Set(cds.map((a) => a.targetUid)).size === 2);
+    const hitTarget = (st: GameState) => [...st.log].reverse().find((e) => e.kind === 'card.effect')?.payload?.targetUid;
+    const r1 = adapter.tryApplyAction!(g, { type: 'play-doom-card', corp: 'Bauhaus', cardId: 'cds_rcd', power: 0, targetUid: 'lg' }, 'Bauhaus');
+    check('Control Defense System hits the chosen figure', r1.ok && hitTarget(r1.state) === 'lg');
+    const r2 = adapter.tryApplyAction!(g, { type: 'play-doom-card', corp: 'Bauhaus', cardId: 'cds_rcd', power: 0 }, 'Bauhaus');
+    check('no target (older client) falls back to the toughest', r2.ok && hitTarget(r2.state) === 'ez');
+    const trooper = g.figures.find((f) => f.owner === 'Bauhaus')!;
+    const r3 = adapter.tryApplyAction!(g, { type: 'play-doom-card', corp: 'Bauhaus', cardId: 'cds_rcd', power: 0, targetUid: trooper.uid }, 'Bauhaus');
+    check('a Doomtrooper cannot be the target', !r3.ok);
+    const r4 = adapter.tryApplyAction!(g, { type: 'play-doom-card', corp: 'Bauhaus', cardId: 'cv_si', power: 0, targetUid: 'lg' }, 'Bauhaus');
+    const seized = r4.state.figures.find((f) => f.uid === 'lg')!, spared = r4.state.figures.find((f) => f.uid === 'ez')!;
+    check('Commanding Voice seizes the chosen figure', r4.ok && seized.actionsLeft === 0 && spared.actionsLeft === 3);
+  }
+
   // --- walls block movement geometry ---
   {
     const wallE = [{ x: 3, y: 3, dir: 'E' as const }]; // edge between (3,3) and (4,3)

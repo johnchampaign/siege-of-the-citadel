@@ -112,6 +112,20 @@ function playTurn(g: GameState, seat: string): GameState {
     check(`the boss takes cover (ends at ${b.x},${b.y})`, !hasLineOfSight(g, b.x, b.y, 4, 4));
   }
 
+  // --- Control Defense System goes where 3 black dice can kill ---
+  {
+    const g = scenario('trial', [
+      { typeId: 'steiner', owner: 'Bauhaus', x: 5, y: 5 },
+      { typeId: 'ezoghoul', owner: 'legion', x: 12, y: 12 },   // armor 3: 3 dice can never kill it
+      { typeId: 'razide', owner: 'legion', x: 14, y: 12 },     // armor 2: 3 black dice kill ~30%
+    ]);
+    g.activeSeat = 'Bauhaus';
+    g.doomHands.Bauhaus = ['cds_rcd'];
+    const a = chooseAction(g, 'Bauhaus') as any;
+    check(`AI aims Control Defense System at the killable Razide (${a.type} ${a.targetUid ?? ''})`,
+      a.type === 'play-doom-card' && a.cardId === 'cds_rcd' && a.targetUid === 'f2');
+  }
+
   // --- pursues the objective: a trooper near the exit escapes (and wins Trapped!) ---
   {
     let g = createInitialState({ missionId: 'trapped', seed: 1 });
