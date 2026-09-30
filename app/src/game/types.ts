@@ -49,6 +49,7 @@ export interface Figure {
   woundsTaken: number;        // strength lost
   actionsLeft: number;        // base actions remaining this turn
   actionsTaken: number;       // total actions performed this turn (cap 4 for troopers)
+  passed?: boolean;           // "Done with this figure" this round: no more actions, base or pool
   alive: boolean;
   tag?: string;               // objective marker (e.g. 'boss', 'door')
   equipment?: string[];       // equipment card ids carried (troopers)

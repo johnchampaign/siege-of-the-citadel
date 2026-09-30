@@ -342,7 +342,7 @@ export const App: React.FC = () => {
           <Panel title={`Selected: ${selType.name}`}>
             <div style={{ fontSize: 13 }}>
               {selType.faction} · strength {selType.strength - selFig.woundsTaken}/{selType.strength} · armor {selType.armor} · <b>{selFig.actionsLeft} action(s)</b>
-              {selFig.owner !== 'legion' && selFig.actionsLeft === 0 && (state.extraPool[selFig.owner] ?? 0) > 0 && (selFig.actionsTaken ?? 0) < 4 && (
+              {selFig.owner !== 'legion' && selFig.actionsLeft === 0 && (state.extraPool[selFig.owner] ?? 0) > 0 && (selFig.actionsTaken ?? 0) < 4 && !selFig.passed && (
                 <span style={{ color: '#e8c349' }}> +pool</span>
               )}
             </div>

@@ -133,6 +133,7 @@ function clone(s: GameState): GameState {
 /** Can this figure begin another action — from its base actions, or (troopers
  *  only) by drawing from the team Extra Action pool up to the 4-action cap? */
 export function canTakeAction(s: GameState, f: Figure): boolean {
+  if (f.passed) return false;
   // Combat Neurosis / Misinterpreted Orders cap a corporation's actions this round.
   const cap = s.roundFx.cap?.[f.owner];
   if (cap) {
@@ -316,6 +317,7 @@ function beginRound(s: GameState) {
     if (!f.alive) continue;
     f.actionsLeft = effectiveType(f, s.rank[f.owner] ?? 1, boostFor(s, f)).actions;
     f.actionsTaken = 0;
+    delete f.passed;
   }
   for (const c of Object.keys(s.extraPool)) s.extraPool[c] = extraActionPoolSize(s.rank[c] ?? 1);
   s.drawOrder = shuffledSeatOrder(s);
@@ -687,7 +689,10 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       const f = s.figures.find((x) => x.uid === action.uid);
       if (!f || f.owner !== actor) return { state, ok: false, reason: 'not your figure' };
       f.actionsLeft = 0;
-      f.actionsTaken = 4; // done — no more Extra Actions from the pool either
+      // Done for the round — no Extra Actions from the pool either. A flag, not
+      // actionsTaken = 4: that counted as 4 actions taken, so under Misinterpreted
+      // Orders (2 actions for the pair) passing one figure froze its partner.
+      f.passed = true;
       setSteps(s, f.uid, 0);
       autoAdvance(s);
       return { state: s, ok: true };

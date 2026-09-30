@@ -150,6 +150,31 @@ async function playOut(seed: number): Promise<GameState> {
     if (fig(ally).woundsTaken > 0) check('friendly fire cost PP', r.state.promotion.Bauhaus < ppBefore);
   }
 
+  // --- Misinterpreted Orders (pair capped at 2 actions): passing one figure must
+  //     not use up its partner's actions (pass used to count as 4 actions taken) ---
+  {
+    let g = createInitialState({ missionId: 'trial', seed: 21 });
+    g = adapter.applyAction(g, { type: 'start' }, g.seats[0].id);
+    g.activeSeat = 'Bauhaus'; g.drawOrder = [];
+    g.roundFx = { cap: { Bauhaus: { total: 2 } } };
+    const [a, b] = g.figures.filter((f) => f.owner === 'Bauhaus');
+    for (const f of [a, b]) { f.actionsLeft = 2; f.actionsTaken = 0; }
+    g = adapter.applyAction(g, { type: 'pass-figure', uid: a.uid }, 'Bauhaus');
+    const movesFor = (st: GameState, uid: string) => adapter.legalActions(st, 'Bauhaus').filter((x) => x.type === 'move' && x.uid === uid);
+    check('misorders: partner can still act after a pass', g.activeSeat === 'Bauhaus' && movesFor(g, b.uid).length > 0);
+    check('misorders: the passed figure cannot act (even from the pool)', movesFor(g, a.uid).length === 0);
+    // Spend the pair's 2 actions with the partner (each move action = up to 3 steps).
+    for (let i = 0; i < 2; i++) {
+      (g as any)._steps = {};
+      const m = movesFor(g, b.uid)[0];
+      if (m) g = adapter.applyAction(g, m, 'Bauhaus');
+    }
+    (g as any)._steps = {};
+    check('misorders: the cap still stops the pair at 2 actions', g.activeSeat !== 'Bauhaus' || movesFor(g, b.uid).length === 0);
+    const fig = g.figures.find((f) => f.uid === a.uid)!;
+    check('pass recorded as a flag, not 4 fake actions', fig.passed === true && fig.actionsTaken === 0);
+  }
+
   // --- walls block movement geometry ---
   {
     const wallE = [{ x: 3, y: 3, dir: 'E' as const }]; // edge between (3,3) and (4,3)

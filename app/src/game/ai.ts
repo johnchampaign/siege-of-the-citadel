@@ -658,15 +658,12 @@ function decide(state: GameState, actor: string): { act: Action; path?: Step[] }
     || shotNow.get(b.uid)! - shotNow.get(a.uid)!
     || goalDist(c, a.x, a.y) - goalDist(c, b.x, b.y)
     || (a.uid < b.uid ? -1 : 1));
-  // Passing a figure counts it as 4 actions taken, which would eat a total-action cap.
-  const passSafe = s.roundFx.cap?.[actor]?.total == null;
-
   const baseFigs = mine.filter((f) => (f.actionsLeft > 0 && canTakeAction(s, f)) || getSteps(s, f.uid) > 0);
   for (const f of order(baseFigs)) {
     const n = f.actionsLeft > 0 && canTakeAction(s, f) ? f.actionsLeft : 0;
     const plan = planFigure(c, f, n, getSteps(s, f.uid));
     if (plan.act && isLegal(plan.act)) return { act: plan.act, path: plan.path };
-    if (passSafe) return { act: { type: 'pass-figure', uid: f.uid } };
+    return { act: { type: 'pass-figure', uid: f.uid } };
   }
 
   // Doomtroopers: then spend the team's shared Extra Action pool where it helps most.
