@@ -843,6 +843,18 @@ function decide(state: GameState, actor: string): { act: Action; path?: Step[] }
     if (card) return { act: card };
   }
 
+  // Remote Controlled Door mid-turn: when a figure finishes (pass) or the turn
+  // is about to end, the troopers may have moved into a spot worth sealing —
+  // check then, as a player would. (Turn start is covered by pickCard; these
+  // are at most one check per figure + one per turn, to keep server CPU low.)
+  const turnStart = mine.every((f) => (f.actionsTaken ?? 0) === 0);
+  const orDoor = (fallback: Action): { act: Action } => {
+    if (actor === 'legion' || turnStart) return { act: fallback };
+    const doors = legal.filter((a): a is Extract<Action, { type: 'play-doom-card' }> => a.type === 'play-doom-card' && DOOM_CARDS[a.cardId]?.powers[a.power]?.effect === 'door');
+    const d = doors.length ? bestDoor(c, doors, mine) : null;
+    return { act: d ? d.a : fallback };
+  };
+
   // Figures still holding base actions (or mid-move) act first: mid-move ones,
   // then those with the best shot on offer, then whoever is nearest the objective
   // (front-runners clear the way for the rest).
@@ -858,7 +870,7 @@ function decide(state: GameState, actor: string): { act: Action; path?: Step[] }
     const n = f.actionsLeft > 0 && canTakeAction(s, f) ? f.actionsLeft : 0;
     const plan = planFigure(c, f, n, getSteps(s, f.uid));
     if (plan.act && isLegal(plan.act)) return { act: plan.act, path: plan.path };
-    return { act: { type: 'pass-figure', uid: f.uid } };
+    return orDoor({ type: 'pass-figure', uid: f.uid });
   }
 
   // Doomtroopers: then spend the team's shared Extra Action pool where it helps most.
@@ -871,7 +883,7 @@ function decide(state: GameState, actor: string): { act: Action; path?: Step[] }
     }
     if (best && best.value - best.stop > 0.05) return { act: best.act!, path: best.path };
   }
-  return { act: isLegal(endTurn) ? endTurn : legal[legal.length - 1] };
+  return orDoor(isLegal(endTurn) ? endTurn : legal[legal.length - 1]);
 }
 
 /** Everything a planned walk depends on besides the walker: the other

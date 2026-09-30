@@ -170,6 +170,19 @@ function playTurn(g: GameState, seat: string): GameState {
     check(`AI seals the gap between the Ezoghoul and its trooper (${a.type} ${a.x ?? ''},${a.y ?? ''} ${a.dir ?? ''})`,
       a.type === 'play-doom-card' && a.power === 1 && a.x === 5 && a.y === 7 && a.dir === 'E');
 
+    // …and mid-turn: a trooper that has already acted (so this isn't turn start)
+    // and has nothing left to do seals the gap rather than just ending the turn.
+    g = scenario('trial', [
+      { typeId: 'steiner', owner: 'Bauhaus', x: 7, y: 7, actionsLeft: 0, actionsTaken: 2 },
+      { typeId: 'ezoghoul', owner: 'legion', x: 2, y: 7 },
+    ], wallLine());
+    g.win = { kind: 'survive' };
+    g.activeSeat = 'Bauhaus';
+    g.doomHands.Bauhaus = ['cds_rcd'];
+    const m = chooseAction(g, 'Bauhaus') as any;
+    check(`AI seals the gap mid-turn instead of ending its turn (${m.type} ${m.x ?? ''},${m.y ?? ''} ${m.dir ?? ''})`,
+      m.type === 'play-doom-card' && m.power === 1 && m.x === 5 && m.y === 7 && m.dir === 'E');
+
     // …but not the gap it needs to reach its own exit, when the threat is on its side.
     g = scenario('trial', [
       { typeId: 'steiner', owner: 'Bauhaus', x: 7, y: 7 },
