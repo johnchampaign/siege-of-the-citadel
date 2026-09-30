@@ -843,10 +843,9 @@ function decide(state: GameState, actor: string): { act: Action; path?: Step[] }
     if (card) return { act: card };
   }
 
-  // Remote Controlled Door mid-turn: when a figure finishes (pass) or the turn
-  // is about to end, the troopers may have moved into a spot worth sealing —
-  // check then, as a player would. (Turn start is covered by pickCard; these
-  // are at most one check per figure + one per turn, to keep server CPU low.)
+  // Remote Controlled Door mid-turn: just before the turn ends, the troopers may
+  // have moved into a spot worth sealing — check then, as a player would. (Turn
+  // start is covered by pickCard; one extra check per turn keeps server CPU low.)
   const turnStart = mine.every((f) => (f.actionsTaken ?? 0) === 0);
   const orDoor = (fallback: Action): { act: Action } => {
     if (actor === 'legion' || turnStart) return { act: fallback };
@@ -870,7 +869,7 @@ function decide(state: GameState, actor: string): { act: Action; path?: Step[] }
     const n = f.actionsLeft > 0 && canTakeAction(s, f) ? f.actionsLeft : 0;
     const plan = planFigure(c, f, n, getSteps(s, f.uid));
     if (plan.act && isLegal(plan.act)) return { act: plan.act, path: plan.path };
-    return orDoor({ type: 'pass-figure', uid: f.uid });
+    return { act: { type: 'pass-figure', uid: f.uid } };
   }
 
   // Doomtroopers: then spend the team's shared Extra Action pool where it helps most.
