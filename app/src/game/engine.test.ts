@@ -187,7 +187,7 @@ async function playOut(seed: number): Promise<GameState> {
     );
     const cds = adapter.legalActions(g, 'Bauhaus').filter((a) => a.type === 'play-doom-card' && a.cardId === 'cds_rcd' && a.power === 0) as any[];
     check('targeted card: one legal action per Legion figure', cds.length === 2 && new Set(cds.map((a) => a.targetUid)).size === 2);
-    const hitTarget = (st: GameState) => [...st.log].reverse().find((e) => e.kind === 'card.effect')?.payload?.targetUid;
+    const hitTarget = (st: GameState) => ([...st.log].reverse().find((e) => e.kind === 'card.effect')?.payload as { targetUid?: string } | undefined)?.targetUid;
     const r1 = adapter.tryApplyAction!(g, { type: 'play-doom-card', corp: 'Bauhaus', cardId: 'cds_rcd', power: 0, targetUid: 'lg' }, 'Bauhaus');
     check('Control Defense System hits the chosen figure', r1.ok && hitTarget(r1.state) === 'lg');
     const r2 = adapter.tryApplyAction!(g, { type: 'play-doom-card', corp: 'Bauhaus', cardId: 'cds_rcd', power: 0 }, 'Bauhaus');
