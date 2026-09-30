@@ -9,7 +9,7 @@ import type { DoomPower } from './cards';
 import type { SectorPlacement } from './types';
 import {
   onBoard, figureAt, canStep, dist, hasLineOfSight, resolveAttack, rankSaveColor, rollDice, inCitadel,
-  wallBlocksStep, wallBetween,
+  wallBlocksStep, wallBetween, withWall, withoutWall,
 } from './rules';
 import type { Weapon, FigureType } from './types';
 
@@ -1076,7 +1076,7 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       const spots = doorSpots(s);
       let spot = action.dir ? spots.find((e) => e.x === action.x && e.y === action.y && e.dir === action.dir) : fallbackDoorSpot(s, corp, spots);
       if (!spot) return false;
-      s.walls = [...s.walls, { x: spot.x, y: spot.y, dir: spot.dir, door: true }]; // new array: walls are shared between states (see clone)
+      s.walls = withWall(s.walls, { x: spot.x, y: spot.y, dir: spot.dir, door: true }); // new array: walls are shared between states (see clone)
       const [ox, oy] = spot.dir === 'E' ? [spot.x + 1, spot.y] : [spot.x, spot.y + 1];
       logEvent(s, 'card.effect', `A door seals the gap between (${spot.x},${spot.y}) and (${ox},${oy}).`, { depth: 1, effect: 'door', x: spot.x, y: spot.y, dir: spot.dir }, corp);
       break;
@@ -1250,7 +1250,7 @@ function attackDoor(s: GameState, f: Figure, a: Extract<Action, { type: 'attack-
   const label = `${ft.name} attacks the door with ${wp.name}: ${hits} hit${hits === 1 ? '' : 's'}${broken ? ' — the door is DESTROYED' : ' (3 in one attack destroy it)'}`;
   s.lastRoll = { dice, color: wp.color, hits, label, attackerOwner: f.owner, attackerName: ft.name, targetName: 'Door', weapon: wp.name, armor: 0, saves: 0, damage: broken ? 1 : 0, killed: broken };
   logEvent(s, 'combat.roll', label, { attackerUid: f.uid, attackerOwner: f.owner, door: { x: a.x, y: a.y, dir: a.dir }, weapon: wp.name, weaponKind: wp.kind, dice, color: wp.color, hits, destroyed: broken }, f.owner);
-  if (broken) s.walls = s.walls.filter((w) => !(w.door && w.x === a.x && w.y === a.y && w.dir === a.dir)); // new array (shared walls)
+  if (broken) s.walls = withoutWall(s.walls, (w) => !!w.door && w.x === a.x && w.y === a.y && w.dir === a.dir); // new array (shared walls)
 }
 
 /** Whether a commandeered figure's weapon can hit `target` from where it stands.

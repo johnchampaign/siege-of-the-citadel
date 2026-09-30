@@ -5,7 +5,7 @@ import {
   adapter, canTakeAction, moveRange, boostFor, armorOf, escapeAllowed, getSteps, totalPromotion,
 } from './adapter';
 import { effectiveType, figureType } from './data';
-import { inCitadel, wallBlocksStep, dist, rankSaveColor, canStep } from './rules';
+import { inCitadel, wallBlocksStep, dist, rankSaveColor, canStep, withWall } from './rules';
 import { DOOM_CARDS } from './cards';
 
 // Tactical AI for either side of Siege of the Citadel.
@@ -173,6 +173,24 @@ function computeField(c: Ctx, sources: { x: number; y: number }[], start: number
   return d;
 }
 
+/** Playable squares (on a sector, not the Citadel base) — fixed per map layout,
+ *  so built once per layout rather than on every decision. Read-only. */
+const openMemo = new Map<string, Set<number>>();
+function openSquares(s: GameState): Set<number> {
+  const key = s.sectors.map((q) => `${q.ox},${q.oy},${q.size}`).join(';') + (s.citadel ? `|${s.citadel.cx},${s.citadel.cy}` : '');
+  let open = openMemo.get(key);
+  if (!open) {
+    open = new Set();
+    for (const sec of s.sectors)
+      for (let y = sec.oy; y < sec.oy + sec.size; y++)
+        for (let x = sec.ox; x < sec.ox + sec.size; x++)
+          if (!inCitadel(s, x, y)) open.add(K(x, y));
+    if (openMemo.size > 50) openMemo.clear();
+    openMemo.set(key, open);
+  }
+  return open;
+}
+
 function buildCtx(s: GameState, actor: string): Ctx {
   const legion = actor === 'legion';
   const alive = s.figures.filter((f) => f.alive);
@@ -180,14 +198,10 @@ function buildCtx(s: GameState, actor: string): Ctx {
     s, actor, legion,
     enemies: alive.filter((f) => (f.owner === 'legion') !== legion),
     friends: alive.filter((f) => (f.owner === 'legion') === legion),
-    open: new Set(), occ: new Map(), exits: new Set(s.exits.map((e) => K(e.x, e.y))),
+    open: openSquares(s), occ: new Map(), exits: new Set(s.exits.map((e) => K(e.x, e.y))),
     unrevealed: new Set(s.forceCards.filter((f) => !f.revealed).map((f) => f.sectorId)),
     goal: null, goalSrc: [], types: new Map(), los: new Map(), pos: new Map(), meleeReach: new Map(), legal: [],
   };
-  for (const sec of s.sectors)
-    for (let y = sec.oy; y < sec.oy + sec.size; y++)
-      for (let x = sec.ox; x < sec.ox + sec.size; x++)
-        if (!inCitadel(s, x, y)) c.open.add(K(x, y));
   for (const f of alive) c.occ.set(K(f.x, f.y), f);
 
   if (legion) {
@@ -508,13 +522,19 @@ function firstStep(r: Map<number, ReachNode>, to: ReachNode): ReachNode {
  *  — the payoff for breaking one (0 when doors aren't in its way). */
 function doorGain(c: Ctx, f: Figure): number {
   if (!c.goal || !c.s.walls.some((w) => w.door)) return 0;
-  if (c.goalNoDoors === undefined) {
-    const open = c.s.walls.filter((w) => !w.door);
-    c.goalNoDoors = distanceField(c, c.goalSrc, 0, Infinity, open);
-  }
+  if (c.goalNoDoors === undefined) c.goalNoDoors = distanceField(c, c.goalSrc, 0, Infinity, withoutDoors(c.s.walls));
   const withDoors = goalDist(c, f.x, f.y);
   const without = c.goalNoDoors?.get(K(f.x, f.y));
   return without === undefined ? 0 : Math.max(0, withDoors - without);
+}
+
+// The same door-less walls array for a given walls array, so distanceField's
+// memo (keyed by the array) hits instead of rebuilding the field every call.
+const noDoorsMemo = new WeakMap<Wall[], Wall[]>();
+function withoutDoors(walls: Wall[]): Wall[] {
+  let w = noDoorsMemo.get(walls);
+  if (!w) { w = walls.filter((x) => !x.door); noDoorsMemo.set(walls, w); }
+  return w;
 }
 
 /** P(an attack with `w` scores the 3+ hits that destroy a door). */
@@ -561,8 +581,9 @@ function planFigure(c: Ctx, f: Figure, n: number, free: number): Plan {
     }
   }
 
-  // 1b) Break a door that stands between it and the objective.
-  if (n >= 1) {
+  // 1b) Break a door that stands between it and the objective (only worth
+  // working out when this figure can actually hit a door from here).
+  if (n >= 1 && c.legal.some((a) => a.type === 'attack-door' && a.uid === f.uid)) {
     const gain = doorGain(c, f);
     if (gain > 0) {
       const ft = typeOf(c, f);
@@ -747,7 +768,7 @@ function bestDoor(c: Ctx, options: Extract<Action, { type: 'play-doom-card' }>[]
     .map((e) => e.a);
   for (const a of spots) {
     if (a.x === undefined || a.y === undefined || !a.dir) continue;
-    const pic = doorPicture(c, [...c.s.walls, { x: a.x, y: a.y, dir: a.dir, door: true }], mine);
+    const pic = doorPicture(c, withWall(c.s.walls, { x: a.x, y: a.y, dir: a.dir, door: true }), mine);
     let held = 0;
     for (const [uid, d0] of base.walk) held += Math.min(DOOR_DELAY_CAP, Math.max(0, (pic.walk.get(uid) ?? d0) - d0));
     const v = (base.danger - pic.danger) + DOOR_DELAY_W * held - Math.max(0, pic.route - base.route);

@@ -105,6 +105,74 @@ export function wallBetween(walls: Wall[], x: number, y: number, dir: 'N' | 'E' 
  *  (both back-edges walled), so a sight line may graze a single wall corner. */
 export function wallBlocksStep(walls: Wall[], x: number, y: number, tx: number, ty: number, strictCorner = false): boolean {
   const dx = tx - x, dy = ty - y;
+  if (dx < -1 || dx > 1 || dy < -1 || dy > 1 || (dx === 0 && dy === 0)) return stepBlockedUncached(walls, x, y, tx, ty, strictCorner);
+  const e = stepCache(walls);
+  const cx = x - e.x0, cy = y - e.y0;
+  if (cx < 0 || cy < 0 || cx >= e.w || cy >= e.h) return false; // no wall within reach of this square
+  const masks = strictCorner ? e.strict : e.loose;
+  const i = cy * e.w + cx;
+  let m = masks[i];
+  if (m < 0) {
+    m = 0;
+    for (let sy = -1; sy <= 1; sy++)
+      for (let sx = -1; sx <= 1; sx++)
+        if ((sx || sy) && stepBlockedUncached(walls, x, y, x + sx, y + sy, strictCorner)) m |= 1 << ((sy + 1) * 3 + sx + 1);
+    masks[i] = m;
+  }
+  return ((m >> ((dy + 1) * 3 + dx + 1)) & 1) === 1;
+}
+
+/** Per walls array, lazily: for each square, a bitmask of which of its 8 single
+ *  steps a wall blocks (one table for movement's strict corners, one for sight
+ *  lines). Movement, line of sight and every AI search ask this question
+ *  constantly; after the first ask per square it is one array read. Same
+ *  staleness rule as the wall index: arrays are replaced, never edited. */
+const stepIndex = new WeakMap<Wall[], { n: number; x0: number; y0: number; w: number; h: number; loose: Int16Array; strict: Int16Array }>();
+function stepCache(walls: Wall[]) {
+  let e = stepIndex.get(walls);
+  if (!e || e.n !== walls.length) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const w of walls) { minX = Math.min(minX, w.x); minY = Math.min(minY, w.y); maxX = Math.max(maxX, w.x); maxY = Math.max(maxY, w.y); }
+    // Pad by 2: a wall only affects steps from squares within one of its cell.
+    const x0 = walls.length ? minX - 2 : 0, y0 = walls.length ? minY - 2 : 0;
+    const w = walls.length ? maxX - x0 + 3 : 0, h = walls.length ? maxY - y0 + 3 : 0;
+    e = { n: walls.length, x0, y0, w, h, loose: new Int16Array(w * h).fill(-1), strict: new Int16Array(w * h).fill(-1) };
+    stepIndex.set(walls, e);
+  }
+  return e;
+}
+
+/** `walls` plus one more wall, as a NEW array (walls are shared between states,
+ *  so never push). Its step table starts as a copy of the old one with just the
+ *  squares around the new wall cleared, instead of being rebuilt from scratch. */
+export function withWall(walls: Wall[], w: Wall): Wall[] {
+  const out = [...walls, w];
+  seedStepCache(walls, out, [w]);
+  return out;
+}
+
+/** `walls` minus the walls matching `drop`, as a NEW array (same seeding). */
+export function withoutWall(walls: Wall[], drop: (w: Wall) => boolean): Wall[] {
+  const out = walls.filter((w) => !drop(w));
+  seedStepCache(walls, out, walls.filter(drop));
+  return out;
+}
+
+function seedStepCache(from: Wall[], to: Wall[], changed: Wall[]) {
+  const e = stepIndex.get(from);
+  if (!e || e.n !== from.length || !to.length) return;
+  // Only when every changed wall (±2 squares) sits inside the old table's box.
+  for (const w of changed)
+    if (w.x - 2 < e.x0 || w.y - 2 < e.y0 || w.x + 2 >= e.x0 + e.w || w.y + 2 >= e.y0 + e.h) return;
+  const loose = e.loose.slice(), strict = e.strict.slice();
+  for (const w of changed)
+    for (let y = w.y - 2; y <= w.y + 2; y++)
+      for (let x = w.x - 2; x <= w.x + 2; x++) { const i = (y - e.y0) * e.w + (x - e.x0); loose[i] = -1; strict[i] = -1; }
+  stepIndex.set(to, { n: to.length, x0: e.x0, y0: e.y0, w: e.w, h: e.h, loose, strict });
+}
+
+function stepBlockedUncached(walls: Wall[], x: number, y: number, tx: number, ty: number, strictCorner: boolean): boolean {
+  const dx = tx - x, dy = ty - y;
   if (dx !== 0 && dy === 0) return wallBetween(walls, x, y, dx > 0 ? 'E' : 'W');
   if (dy !== 0 && dx === 0) return wallBetween(walls, x, y, dy > 0 ? 'S' : 'N');
   // diagonal: the two edges of the source cell in the move direction…
