@@ -142,6 +142,19 @@ function playTurn(g: GameState, seat: string): GameState {
     check('…and control reverts by the end of the turn', g.commandeer === undefined);
   }
 
+  // --- a Razide walled off from its prey shoots the door out of the way ---
+  {
+    const walls: Wall[] = Array.from({ length: 16 }, (_, y) => y).filter((y) => y !== 7).map((y) => ({ x: 5, y, dir: 'E' as const }));
+    walls.push({ x: 5, y: 7, dir: 'E', door: true });
+    const g = scenario('trial', [
+      { typeId: 'steiner', owner: 'Bauhaus', x: 9, y: 7, actionsLeft: 0 },
+      { typeId: 'razide', owner: 'legion', x: 5, y: 7 },   // beside the door, trooper beyond it
+    ], walls);
+    g.activeSeat = 'legion';
+    const a = chooseAction(g, 'legion') as any;
+    check(`AI Razide attacks the door blocking it (${a.type}${a.weaponIdx !== undefined ? ' w' + a.weaponIdx : ''})`, a.type === 'attack-door' && a.weaponIdx === 1);
+  }
+
   // --- pursues the objective: a trooper near the exit escapes (and wins Trapped!) ---
   {
     let g = createInitialState({ missionId: 'trapped', seed: 1 });

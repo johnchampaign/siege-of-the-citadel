@@ -80,6 +80,7 @@ export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
             onSelect={setSelected}
             onMove={(x, y) => selected && submit({ type: 'move', uid: selected, x, y })}
             onAttack={(t, idx) => selected && submit({ type: 'attack', uid: selected, targetUid: t, weaponIdx: idx })}
+            onAttackDoor={(d, idx) => selected && submit({ type: 'attack-door', uid: selected, x: d.x, y: d.y, dir: d.dir, weaponIdx: idx })}
           />
         </div>
       </div>

@@ -9,7 +9,7 @@ import type { DoomPower } from './cards';
 import type { SectorPlacement } from './types';
 import {
   onBoard, figureAt, canStep, dist, hasLineOfSight, resolveAttack, rankSaveColor, rollDice, inCitadel,
-  wallBlocksStep,
+  wallBlocksStep, wallBetween,
 } from './rules';
 import type { Weapon, FigureType } from './types';
 
@@ -583,6 +583,9 @@ export const adapter: GameAdapter<GameState, Action, string> = {
         if (p.target === 'legion') {
           for (const t of s.figures) if (t.alive && t.owner === 'legion' && (p.effect !== 'mind-control' || commandable(t)))
             actions.push({ type: 'play-doom-card', corp: actor, cardId, power, targetUid: t.uid });
+        } else if (p.effect === 'door') {
+          // Remote Controlled Door: one action per gap it may seal (the player picks).
+          for (const e of doorSpots(s)) actions.push({ type: 'play-doom-card', corp: actor, cardId, power, x: e.x, y: e.y, dir: e.dir });
         } else actions.push({ type: 'play-doom-card', corp: actor, cardId, power });
       });
     }
@@ -628,6 +631,7 @@ export const adapter: GameAdapter<GameState, Action, string> = {
           });
         }
       }
+      if (canTakeAction(s, f)) actions.push(...doorAttacks(s, f));
       actions.push({ type: 'pass-figure', uid: f.uid });
     }
     actions.push({ type: 'end-turn' });
@@ -768,6 +772,19 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       setSteps(s, f.uid, 0); // attacking ends any in-progress move
       resolveCombat(s, f, target, ft, w, action.weaponIdx);
       checkWin(s);
+      autoAdvance(s);
+      return { state: s, ok: true };
+    }
+
+    if (action.type === 'attack-door') {
+      const f = s.figures.find((x) => x.uid === action.uid && x.alive);
+      if (!f || f.owner !== actor) return { state, ok: false, reason: 'not your figure' };
+      if (!canTakeAction(s, f)) return { state, ok: false, reason: 'no actions left' };
+      if (!doorAttacks(s, f).some((a) => a.type === 'attack-door' && a.x === action.x && a.y === action.y && a.dir === action.dir && a.weaponIdx === action.weaponIdx))
+        return { state, ok: false, reason: 'that door is not in reach of this weapon' };
+      consumeAction(s, f);
+      setSteps(s, f.uid, 0);
+      attackDoor(s, f, action);
       autoAdvance(s);
       return { state: s, ok: true };
     }
@@ -961,7 +978,7 @@ function powerPlayable(s: GameState, corp: string, p: DoomPower): boolean {
     case 'teleport': return s.figures.some((f) => f.alive && f.owner === corp);
     default:
       if (p.effect === 'move-force-card') return s.forceCards.some((f) => !f.revealed);
-      if (p.effect === 'door') return s.figures.some((f) => f.alive && f.owner === corp) && s.figures.some((f) => f.alive && f.owner === 'legion');
+      if (p.effect === 'door') return doorSpots(s).length > 0;
       return true;
   }
 }
@@ -1049,15 +1066,15 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       break;
     }
     case 'door': {
-      const legion = s.figures.filter((f) => f.alive && f.owner === 'legion');
-      let pair: { t: Figure; l: Figure; d: number } | null = null;
-      for (const t of s.figures.filter((f) => f.alive && f.owner === corp))
-        for (const l of legion) { const d = dist(t.x, t.y, l.x, l.y); if (!pair || d < pair.d) pair = { t, l, d }; }
-      if (!pair) return false;
-      const dx = pair.l.x - pair.t.x, dy = pair.l.y - pair.t.y;
-      const dir = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
-      s.walls = [...s.walls, { x: pair.t.x, y: pair.t.y, dir: dir as 'N' | 'E' | 'S' | 'W' }]; // new array: walls are shared between states (see clone)
-      logEvent(s, 'card.effect', `A door seals the wall ${dir} of ${figureType(pair.t.typeId).name}.`, { depth: 1, effect: 'door', uid: pair.t.uid, dir }, corp);
+      // "A door across any freely chosen corridor or opening not wider than one
+      // square", never diagonal. An action with no spot (older cached client)
+      // takes the gap nearest the corp's figure closest to the Legion.
+      const spots = doorSpots(s);
+      let spot = action.dir ? spots.find((e) => e.x === action.x && e.y === action.y && e.dir === action.dir) : fallbackDoorSpot(s, corp, spots);
+      if (!spot) return false;
+      s.walls = [...s.walls, { x: spot.x, y: spot.y, dir: spot.dir, door: true }]; // new array: walls are shared between states (see clone)
+      const [ox, oy] = spot.dir === 'E' ? [spot.x + 1, spot.y] : [spot.x, spot.y + 1];
+      logEvent(s, 'card.effect', `A door seals the gap between (${spot.x},${spot.y}) and (${ox},${oy}).`, { depth: 1, effect: 'door', x: spot.x, y: spot.y, dir: spot.dir }, corp);
       break;
     }
     case 'pp-steal': {
@@ -1145,6 +1162,91 @@ function chosenLegion(s: GameState, targetUid: string | undefined, mustAct = fal
  *  battle computer) — they have no Actions to perform. */
 function commandable(f: Figure): boolean {
   return figureType(f.typeId).actions > 0;
+}
+
+// ---------- Remote Controlled Door ----------
+// A door sits on the edge between two orthogonally adjacent squares, stored on
+// the west/north square facing E/S. It is a wall (blocks moves and sight) until
+// one attack scores 3+ hits on it.
+
+type DoorSpot = { x: number; y: number; dir: 'E' | 'S' };
+const openSq = (s: GameState, x: number, y: number) => onBoard(s, x, y) && !inCitadel(s, x, y);
+
+/** Is the grid corner (vx,vy) "closed" — does a wall, the board edge or the
+ *  Citadel meet it (ignoring the door's own edge)? A door's gap is at most one
+ *  square wide exactly when both of its end corners are closed. */
+function cornerClosed(s: GameState, vx: number, vy: number, skip: 'AB' | 'CD' | 'AC' | 'BD'): boolean {
+  // The four squares around the corner:  A B / C D
+  const A: [number, number] = [vx - 1, vy - 1], B: [number, number] = [vx, vy - 1];
+  const C: [number, number] = [vx - 1, vy], D: [number, number] = [vx, vy];
+  if (![A, B, C, D].every(([x, y]) => openSq(s, x, y))) return true;
+  const edges: [string, number, number, 'E' | 'S'][] = [['AB', ...A, 'E'], ['CD', ...C, 'E'], ['AC', ...A, 'S'], ['BD', ...B, 'S']];
+  return edges.some(([k, x, y, d]) => k !== skip && wallBetween(s.walls, x, y, d));
+}
+
+/** Every gap a Remote Controlled Door may seal: an unwalled orthogonal edge
+ *  between two open squares, no wider than one square (both ends closed). */
+export function doorSpots(s: GameState): DoorSpot[] {
+  const out: DoorSpot[] = [];
+  for (const sec of s.sectors)
+    for (let y = sec.oy; y < sec.oy + sec.size; y++)
+      for (let x = sec.ox; x < sec.ox + sec.size; x++) {
+        if (!openSq(s, x, y)) continue;
+        if (openSq(s, x + 1, y) && !wallBetween(s.walls, x, y, 'E')
+          && cornerClosed(s, x + 1, y, 'CD') && cornerClosed(s, x + 1, y + 1, 'AB')) out.push({ x, y, dir: 'E' });
+        if (openSq(s, x, y + 1) && !wallBetween(s.walls, x, y, 'S')
+          && cornerClosed(s, x, y + 1, 'BD') && cornerClosed(s, x + 1, y + 1, 'AC')) out.push({ x, y, dir: 'S' });
+      }
+  return out;
+}
+
+function fallbackDoorSpot(s: GameState, corp: string, spots: DoorSpot[]): DoorSpot | undefined {
+  const legion = s.figures.filter((f) => f.alive && f.owner === 'legion');
+  const mine = s.figures.filter((f) => f.alive && f.owner === corp);
+  let anchor: Figure | undefined, best = Infinity;
+  for (const t of mine) for (const l of legion) { const d = dist(t.x, t.y, l.x, l.y); if (d < best) { best = d; anchor = t; } }
+  const a = anchor ?? mine[0];
+  if (!a) return spots[0];
+  return [...spots].sort((p, q) => dist(p.x, p.y, a.x, a.y) - dist(q.x, q.y, a.x, a.y))[0];
+}
+
+/** The doors `f` can attack from where it stands, per weapon: close combat from
+ *  either square beside the door; a firearm from its own side with sight of the
+ *  door's near square (or standing on it). */
+function doorAttacks(s: GameState, f: Figure): Action[] {
+  const doors = s.walls.filter((w) => w.door);
+  if (!doors.length) return [];
+  const ft = effectiveType(f, s.rank[f.owner] ?? 1, boostFor(s, f));
+  const trooper = f.owner !== 'legion';
+  const out: Action[] = [];
+  for (const w of doors) {
+    const dir = w.dir as 'E' | 'S';
+    const far: [number, number] = dir === 'E' ? [w.x + 1, w.y] : [w.x, w.y + 1];
+    const nearFirst = dir === 'E' ? f.x <= w.x : f.y <= w.y;
+    const [qx, qy] = nearFirst ? [w.x, w.y] : far; // the door's square on f's side
+    ft.weapons.forEach((wp, idx) => {
+      let ok: boolean;
+      if (wp.kind === 'close') ok = !(trooper && s.roundFx.noMelee) && f.x === qx && f.y === qy;
+      else ok = !(trooper && s.roundFx.noFirearm)
+        && ((f.x === qx && f.y === qy) || (dist(f.x, f.y, qx, qy) <= wp.range && hasLineOfSight(s, f.x, f.y, qx, qy)));
+      if (ok) out.push({ type: 'attack-door', uid: f.uid, x: w.x, y: w.y, dir, weaponIdx: idx });
+    });
+  }
+  return out;
+}
+
+/** One attack on a door: 3+ hits in the roll destroy it (no armor, no saves). */
+function attackDoor(s: GameState, f: Figure, a: Extract<Action, { type: 'attack-door' }>) {
+  const ft = effectiveType(f, s.rank[f.owner] ?? 1, boostFor(s, f));
+  const wp = ft.weapons[a.weaponIdx];
+  const rng = rngFor(s);
+  const { dice, hits } = rollDice(rng, wp.dice, wp.color, rerollFor(s, f, wp.kind));
+  s.rngState = rng.serialize();
+  const broken = hits >= 3;
+  const label = `${ft.name} attacks the door with ${wp.name}: ${hits} hit${hits === 1 ? '' : 's'}${broken ? ' — the door is DESTROYED' : ' (3 in one attack destroy it)'}`;
+  s.lastRoll = { dice, color: wp.color, hits, label, attackerOwner: f.owner, attackerName: ft.name, targetName: 'Door', weapon: wp.name, armor: 0, saves: 0, damage: broken ? 1 : 0, killed: broken };
+  logEvent(s, 'combat.roll', label, { attackerUid: f.uid, attackerOwner: f.owner, door: { x: a.x, y: a.y, dir: a.dir }, weapon: wp.name, weaponKind: wp.kind, dice, color: wp.color, hits, destroyed: broken }, f.owner);
+  if (broken) s.walls = s.walls.filter((w) => !(w.door && w.x === a.x && w.y === a.y && w.dir === a.dir)); // new array (shared walls)
 }
 
 /** Whether a commandeered figure's weapon can hit `target` from where it stands.

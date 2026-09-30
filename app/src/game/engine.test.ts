@@ -1,10 +1,10 @@
 // Headless engine smoke test. Run: npx tsx src/game/engine.test.ts
 import { RandomAI, Rng } from 'digital-boardgame-framework';
-import { adapter, createInitialState } from './adapter';
+import { adapter, createInitialState, doorSpots } from './adapter';
 import { effectiveType, extraActionPoolSize } from './data';
-import { wallBlocksStep } from './rules';
+import { wallBlocksStep, hasLineOfSight, canStep } from './rules';
 import { MISSION_LIST } from './missions';
-import type { GameState, Action } from './types';
+import type { GameState, Action, Wall } from './types';
 
 let pass = 0, fail = 0;
 function check(name: string, cond: boolean) {
@@ -257,6 +257,55 @@ async function playOut(seed: number): Promise<GameState> {
       if (!h.figures.find((f) => f.uid === 'lg')!.alive) killedBy = h.promotion.Bauhaus > pp ? 'Bauhaus' : 'nobody';
     }
     check(`CV: a kill scores for the commanding corporation (${killedBy})`, killedBy === 'Bauhaus');
+  }
+
+  // --- Remote Controlled Door: placed in a one-square gap, 3 hits in one attack destroy it ---
+  {
+    // A wall line down x=5|6 (rows 0..15) with a single one-square gap at row 7.
+    const line = (): Wall[] => Array.from({ length: 16 }, (_, y) => y).filter((y) => y !== 7).map((y) => ({ x: 5, y, dir: 'E' as const }));
+    const setup = () => {
+      let g = createInitialState({ missionId: 'trial', seed: 51 });
+      g = adapter.applyAction(g, { type: 'start' }, g.seats[0].id);
+      g.activeSeat = 'Bauhaus'; g.drawOrder = [];
+      g.doomHands.Bauhaus = ['cds_rcd'];
+      g.walls = line();
+      g.figures = g.figures.filter((f) => f.owner === 'Bauhaus');
+      for (const f of g.figures) { f.actionsLeft = 2; f.actionsTaken = 0; }
+      g.figures.push({ uid: 'lg', typeId: 'legionnaire', owner: 'legion', x: 2, y: 7, woundsTaken: 0, actionsLeft: 2, actionsTaken: 0, alive: true });
+      return g;
+    };
+    let g = setup();
+    const spots = doorSpots(g);
+    check('door: the one-square gap is a legal spot', spots.some((e) => e.x === 5 && e.y === 7 && e.dir === 'E'));
+    check('door: open floor is not', !spots.some((e) => e.x === 2 && e.y === 3 && e.dir === 'E'));
+    const placeAt = (st: GameState, x: number, y: number, dir: 'E' | 'S') =>
+      adapter.tryApplyAction!(st, { type: 'play-doom-card', corp: 'Bauhaus', cardId: 'cds_rcd', power: 1, x, y, dir }, 'Bauhaus');
+    check('door: placing it in open floor is rejected', !placeAt(g, 2, 3, 'E').ok);
+    const r = placeAt(g, 5, 7, 'E');
+    check('door: placed in the gap', r.ok && r.state.walls.some((w) => w.door && w.x === 5 && w.y === 7));
+    g = r.state;
+    check('door: blocks movement through it', !canStep(g, 5, 7, 6, 7));
+    check('door: blocks line of sight', !hasLineOfSight(g, 2, 7, 9, 7));
+    // Attack reach: melee from either square beside it, a firearm from its own side.
+    const t = g.figures.find((f) => f.owner === 'Bauhaus')!;
+    const doorActs = () => adapter.legalActions(g, 'Bauhaus').filter((a) => a.type === 'attack-door' && a.uid === t.uid) as any[];
+    t.x = 6; t.y = 7;   // east square, beside the door
+    check('door: melee + firearm from the square beside it', doorActs().some((a) => a.weaponIdx === 0) && doorActs().some((a) => a.weaponIdx === 1));
+    t.x = 10; t.y = 7;  // down the row on the east side, in sight of (6,7)
+    check('door: firearm (not melee) from its own side at range', doorActs().length === 1 && doorActs()[0].weaponIdx === 1);
+    // 3+ hits in one attack destroy it; fewer leave it standing.
+    t.x = 6; t.y = 7;
+    let destroyed = 0, survived = 0;
+    for (let seed = 1; seed <= 60; seed++) {
+      const h = JSON.parse(JSON.stringify(g)) as GameState; h.walls = g.walls;
+      h.rngState = seed;
+      const after = adapter.applyAction(h, { type: 'attack-door', uid: t.uid, x: 5, y: 7, dir: 'E', weaponIdx: 1 }, 'Bauhaus');
+      const hits = after.lastRoll!.hits;
+      const gone = !after.walls.some((w) => w.door);
+      if (gone) destroyed++; else survived++;
+      if (gone !== hits >= 3) { check(`door: destroyed exactly on 3+ hits (seed ${seed}: ${hits} hits, gone=${gone})`, false); break; }
+    }
+    check(`door: destroyed only by 3+ hits (${destroyed} broken / ${survived} held of 60)`, destroyed > 0 && survived > 0);
   }
 
   // --- walls block movement geometry ---

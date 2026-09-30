@@ -27,7 +27,14 @@ interface Props {
   onSelect: (uid: string | null) => void;
   onMove: (x: number, y: number) => void;
   onAttack: (targetUid: string, weaponIdx: number) => void;
+  /** Remote Controlled Door placement: the gaps to offer (click one), or null. */
+  doorPick?: DoorEdge[] | null;
+  onPickDoor?: (d: DoorEdge) => void;
+  /** Attack a door the selected figure can reach (weaponIdx chosen here). */
+  onAttackDoor?: (d: DoorEdge, weaponIdx: number) => void;
 }
+
+export type DoorEdge = { x: number; y: number; dir: 'E' | 'S' };
 
 function boardBounds(s: GameState) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -40,7 +47,7 @@ function boardBounds(s: GameState) {
   return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
 }
 
-export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useArt, attackKinds, showCoords, onSelect, onMove, onAttack }) => {
+export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useArt, attackKinds, showCoords, onSelect, onMove, onAttack, doorPick, onPickDoor, onAttackDoor }) => {
   const assets = useAssets();
   const b = useMemo(() => boardBounds(state), [state.sectors]);
   const px = (gx: number) => (gx - b.minX) * CELL;
@@ -57,6 +64,24 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
       attackTargets.set(a.targetUid, arr);
     }
   }
+
+  // Doors the selected figure can attack, with the weapons that reach each.
+  const doorTargets = new Map<string, { d: DoorEdge; weapons: number[] }>();
+  for (const a of legal) {
+    if (!selected || a.type !== 'attack-door' || a.uid !== selected) continue;
+    const k = `${a.x},${a.y},${a.dir}`;
+    const e = doorTargets.get(k) ?? { d: { x: a.x, y: a.y, dir: a.dir }, weapons: [] };
+    e.weapons.push(a.weaponIdx);
+    doorTargets.set(k, e);
+  }
+  /** Box for a clickable/visible bar on a door edge (E = right side of x,y; S = bottom). */
+  const edgeBox = (d: DoorEdge, T: number): React.CSSProperties => ({
+    position: 'absolute',
+    left: d.dir === 'E' ? px(d.x) + CELL - T / 2 : px(d.x) + 3,
+    top: d.dir === 'S' ? py(d.y) + CELL - T / 2 : py(d.y) + 3,
+    width: d.dir === 'E' ? T : CELL - 6,
+    height: d.dir === 'E' ? CELL - 6 : T,
+  });
 
   // Commanding Voice: while a corporation directs a Legion figure, that figure
   // is the only one it can act with.
@@ -161,11 +186,11 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
       {state.walls.map((w, i) => {
         if (w.citadel && useArt) return null;
         const lx = px(w.x), ty = py(w.y);
-        const T = w.citadel ? 6 : 4;
+        const T = w.citadel || w.door ? 6 : 4;
         const horiz = w.dir === 'N' || w.dir === 'S';
         const style: React.CSSProperties = {
           position: 'absolute',
-          background: w.citadel ? 'linear-gradient(90deg, #4a4a55, #15151a)' : '#c9a23a',
+          background: w.citadel ? 'linear-gradient(90deg, #4a4a55, #15151a)' : w.door ? 'repeating-linear-gradient(45deg, #b0541c 0 5px, #6b3210 5px 8px)' : '#c9a23a',
           boxShadow: w.citadel ? '0 0 4px #000' : '0 0 3px #000',
           pointerEvents: 'none',
           left: w.dir === 'E' ? lx + CELL - T / 2 : w.dir === 'W' ? lx - T / 2 : lx,
@@ -173,7 +198,25 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
           width: horiz ? CELL : T,
           height: horiz ? T : CELL,
         };
-        return <div key={'w' + i} style={style} />;
+        return <div key={'w' + i} style={style} title={w.door ? 'Remote Controlled Door — 3 hits in one attack destroy it' : undefined} />;
+      })}
+
+      {/* Remote Controlled Door: gaps it may seal (placement mode) */}
+      {doorPick?.map((d) => (
+        <div key={`dp${d.x},${d.y},${d.dir}`} title={`Place the door here (${d.x},${d.y} ${d.dir === 'E' ? '↔' : '↕'})`}
+          onClick={() => onPickDoor?.(d)}
+          style={{ ...edgeBox(d, 12), zIndex: 30, cursor: 'pointer', background: 'rgba(232,195,73,0.55)', border: '1px solid #e8c349', borderRadius: 3 }} />
+      ))}
+
+      {/* doors the selected figure can attack */}
+      {[...doorTargets.values()].map(({ d, weapons }) => {
+        const wi = weapons.includes(weaponIdx) ? weaponIdx : weapons.find((i) => attackKinds[i] === 'close') ?? weapons[0];
+        const melee = attackKinds[wi] === 'close';
+        return (
+          <div key={`da${d.x},${d.y},${d.dir}`} title={`Attack the door (${melee ? '⚔ melee' : '🎯 ranged'}) — 3 hits in one attack destroy it`}
+            onClick={() => onAttackDoor?.(d, wi)}
+            style={{ ...edgeBox(d, 14), zIndex: 30, cursor: 'crosshair', border: `2px solid ${melee ? '#f44' : '#39f'}`, borderRadius: 3, boxShadow: `0 0 8px ${melee ? '#f44' : '#39f'}` }} />
+        );
       })}
 
       {/* citadel — the Citadel marker: a thin black crosshair (central medallion

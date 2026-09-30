@@ -1,5 +1,5 @@
 import type { PlayerController, ControllerContext } from 'digital-boardgame-framework';
-import type { GameState, Action, Figure, FigureType, Weapon, DiceColor } from './types';
+import type { GameState, Action, Figure, FigureType, Weapon, DiceColor, Wall } from './types';
 import { HIT_THRESHOLD } from './types';
 import {
   adapter, canTakeAction, moveRange, boostFor, armorOf, escapeAllowed, getSteps, totalPromotion,
@@ -119,6 +119,8 @@ interface Ctx {
   los: Map<number, Map<number, boolean>>;         // vacated square → pair → sight
   pos: Map<string, number>;                       // uid@square → position value
   meleeReach: Map<string, Map<number, number>>;   // enemy uid → steps to each square
+  legal: Action[];                                // the actor's legal actions (set by decide)
+  goalNoDoors?: Map<number, number> | null;       // objective field as if every door were gone
 }
 
 function typeOf(c: Ctx, f: Figure): FigureType {
@@ -137,19 +139,19 @@ function isObjective(s: GameState, f: Figure): boolean {
 const fieldMemo = new WeakMap<object, Map<string, Map<number, number>>>();
 
 /** Multi-source BFS through playable squares (walls block, figures don't). */
-function distanceField(c: Ctx, sources: { x: number; y: number }[], start = 0, maxD = Infinity): Map<number, number> {
-  let memo = fieldMemo.get(c.s.walls);
-  if (!memo) { memo = new Map(); fieldMemo.set(c.s.walls, memo); }
-  const key = `${c.s.walls.length}|${start}|${maxD}|${sources.map((p) => K(p.x, p.y)).join(',')}`;
+function distanceField(c: Ctx, sources: { x: number; y: number }[], start = 0, maxD = Infinity, walls: Wall[] = c.s.walls): Map<number, number> {
+  let memo = fieldMemo.get(walls);
+  if (!memo) { memo = new Map(); fieldMemo.set(walls, memo); }
+  const key = `${walls.length}|${start}|${maxD}|${sources.map((p) => K(p.x, p.y)).join(',')}`;
   const hit = memo.get(key);
   if (hit) return hit;
   if (memo.size > 500) memo.clear();
-  const d = computeField(c, sources, start, maxD);
+  const d = computeField(c, sources, start, maxD, walls);
   memo.set(key, d);
   return d;
 }
 
-function computeField(c: Ctx, sources: { x: number; y: number }[], start: number, maxD: number): Map<number, number> {
+function computeField(c: Ctx, sources: { x: number; y: number }[], start: number, maxD: number, walls: Wall[]): Map<number, number> {
   const d = new Map<number, number>();
   const q: number[] = [];
   for (const p of sources) {
@@ -163,7 +165,7 @@ function computeField(c: Ctx, sources: { x: number; y: number }[], start: number
       if (!dx && !dy) continue;
       const nk = K(x + dx, y + dy);
       if (d.has(nk) || !c.open.has(nk)) continue;
-      if (wallBlocksStep(c.s.walls, x, y, x + dx, y + dy, true)) continue;
+      if (wallBlocksStep(walls, x, y, x + dx, y + dy, true)) continue;
       d.set(nk, dk + 1);
       q.push(nk);
     }
@@ -180,7 +182,7 @@ function buildCtx(s: GameState, actor: string): Ctx {
     friends: alive.filter((f) => (f.owner === 'legion') === legion),
     open: new Set(), occ: new Map(), exits: new Set(s.exits.map((e) => K(e.x, e.y))),
     unrevealed: new Set(s.forceCards.filter((f) => !f.revealed).map((f) => f.sectorId)),
-    goal: null, goalSrc: [], types: new Map(), los: new Map(), pos: new Map(), meleeReach: new Map(),
+    goal: null, goalSrc: [], types: new Map(), los: new Map(), pos: new Map(), meleeReach: new Map(), legal: [],
   };
   for (const sec of s.sectors)
     for (let y = sec.oy; y < sec.oy + sec.size; y++)
@@ -500,6 +502,29 @@ function firstStep(r: Map<number, ReachNode>, to: ReachNode): ReachNode {
   return n;
 }
 
+// ---------- Remote Controlled Doors ----------
+
+/** How many squares nearer its objective `f` would be if every door were gone
+ *  — the payoff for breaking one (0 when doors aren't in its way). */
+function doorGain(c: Ctx, f: Figure): number {
+  if (!c.goal || !c.s.walls.some((w) => w.door)) return 0;
+  if (c.goalNoDoors === undefined) {
+    const open = c.s.walls.filter((w) => !w.door);
+    c.goalNoDoors = distanceField(c, c.goalSrc, 0, Infinity, open);
+  }
+  const withDoors = goalDist(c, f.x, f.y);
+  const without = c.goalNoDoors?.get(K(f.x, f.y));
+  return without === undefined ? 0 : Math.max(0, withDoors - without);
+}
+
+/** P(an attack with `w` scores the 3+ hits that destroy a door). */
+function pBreakDoor(w: Weapon): number {
+  const pmf = binom(w.dice, PHIT[w.color]);
+  let p = 0;
+  for (let h = 3; h < pmf.length; h++) p += pmf[h];
+  return p;
+}
+
 // ---------- planning one figure ----------
 
 type Step = { x: number; y: number };
@@ -533,6 +558,19 @@ function planFigure(c: Ctx, f: Figure, n: number, free: number): Plan {
     for (const o of attackOptions(c, f, f.x, f.y, vac)) {
       const alive = new Map([[o.t.uid, 1 - outcomeVs(c, o.w, o.t).pKill]]);
       consider({ type: 'attack', uid: f.uid, targetUid: o.t.uid, weaponIdx: o.idx }, o.v + follow(f.x, f.y, n - 1, alive, fresh));
+    }
+  }
+
+  // 1b) Break a door that stands between it and the objective.
+  if (n >= 1) {
+    const gain = doorGain(c, f);
+    if (gain > 0) {
+      const ft = typeOf(c, f);
+      const { wObj } = weights(c, f);
+      for (const a of c.legal) {
+        if (a.type !== 'attack-door' || a.uid !== f.uid) continue;
+        consider(a, pBreakDoor(ft.weapons[a.weaponIdx]) * gain * wObj + follow(f.x, f.y, n - 1, undefined, fresh));
+      }
     }
   }
 
@@ -735,6 +773,7 @@ function decide(state: GameState, actor: string): { act: Action; path?: Step[] }
   const isLegal = (a: Action) => legal.some((l) => sameAction(l, a));
 
   const c = buildCtx(state, actor);
+  c.legal = legal;
   const s = state;
   const mine = s.figures.filter((f) => f.alive && f.owner === actor);
   if (s.commandeer?.corp === actor) return { act: commandeerChoice(c, legal) };

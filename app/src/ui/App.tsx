@@ -80,6 +80,14 @@ export const App: React.FC = () => {
   const isLegionTurn = state.activeSeat === 'legion';
 
   const selFig = state.figures.find((f) => f.uid === selected && f.alive) || null;
+  const doorsInReach = new Set(legal.filter((a) => a.type === 'attack-door' && a.uid === selected).map((a: any) => `${a.x},${a.y},${a.dir}`)).size;
+  // Remote Controlled Door being placed (`${cardId}:${power}`), and the gaps offered.
+  const [doorPicking, setDoorPicking] = useState<string | null>(null);
+  const doorSpotsToPick = doorPicking
+    ? legal.filter((a): a is Extract<Action, { type: 'play-doom-card' }> => a.type === 'play-doom-card' && `${a.cardId}:${a.power}` === doorPicking && !!a.dir)
+      .map((a) => ({ x: a.x!, y: a.y!, dir: a.dir! }))
+    : null;
+  useEffect(() => { setDoorPicking(null); }, [state.activeSeat]);
   // Commanding Voice: select the commandeered Legion figure as control passes.
   const command = state.commandeer?.corp === state.activeSeat ? state.commandeer : undefined;
   useEffect(() => { if (command) setSelected(command.uid); }, [command?.uid]);
@@ -230,6 +238,14 @@ export const App: React.FC = () => {
           onSelect={setSelected}
           onMove={doMove}
           onAttack={doAttack}
+          doorPick={doorSpotsToPick}
+          onPickDoor={(d) => {
+            if (!doorPicking) return;
+            const [cardId, power] = doorPicking.split(':');
+            setDoorPicking(null);
+            submit({ type: 'play-doom-card', corp: state.activeSeat!, cardId, power: Number(power), x: d.x, y: d.y, dir: d.dir });
+          }}
+          onAttackDoor={(d, idx) => selected && submit({ type: 'attack-door', uid: selected, x: d.x, y: d.y, dir: d.dir, weaponIdx: idx })}
         />
         </div>
         <div style={{ marginTop: 8, fontSize: 12, color: '#888', display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -338,7 +354,7 @@ export const App: React.FC = () => {
         </Panel>
 
         {state.phase === 'play' && !isLegionTurn && state.activeSeat && (
-          <TurnAidsPanel state={state} corp={state.activeSeat} submit={submit} legal={legal} />
+          <TurnAidsPanel state={state} corp={state.activeSeat} submit={submit} legal={legal} doorPicking={doorPicking} setDoorPicking={setDoorPicking} />
         )}
 
         {selFig && selType && (
@@ -360,6 +376,7 @@ export const App: React.FC = () => {
                 <span style={{ color: meleeTargets ? '#f66' : '#666' }}>⚔ Melee: {meleeTargets} adjacent</span>
                 <span style={{ color: '#555', margin: '0 6px' }}>·</span>
                 <span style={{ color: rangedTargets ? '#6af' : '#666' }}>🎯 Ranged: {rangedTargets} in sight</span>
+                {doorsInReach > 0 && <span style={{ color: '#d2803a', marginLeft: 6 }}>· 🚪 {doorsInReach} door{doorsInReach === 1 ? '' : 's'} (click it — 3 hits in one attack destroy it)</span>}
               </div>
               {(selEff?.weapons.length ?? 0) > 0 && (
                 <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
@@ -549,7 +566,10 @@ const PlayCount: React.FC = () => {
   return <span style={{ color: '#777', fontSize: 11, letterSpacing: 0 }}>· {count.toLocaleString()} games played</span>;
 };
 
-const TurnAidsPanel: React.FC<{ state: GameState; corp: string; submit: (a: Action) => void; legal: Action[] }> = ({ state, corp, submit, legal }) => {
+const TurnAidsPanel: React.FC<{
+  state: GameState; corp: string; submit: (a: Action) => void; legal: Action[];
+  doorPicking: string | null; setDoorPicking: (k: string | null) => void;
+}> = ({ state, corp, submit, legal, doorPicking, setDoorPicking }) => {
   const pool = state.extraPool[corp] ?? 0;
   const hand = state.doomHands[corp] ?? [];
   const secId = state.secondary[corp];
@@ -586,16 +606,24 @@ const TurnAidsPanel: React.FC<{ state: GameState; corp: string; submit: (a: Acti
                     const key = `${cid}:${pi}`;
                     const ok = playable.has(key);
                     const targeted = p.target === 'legion';
+                    const door = p.effect === 'door';
+                    const active = picking === key || doorPicking === key;
                     return (
-                      <button key={pi} style={{ ...btn, fontSize: 11, padding: '3px 7px', opacity: ok ? 1 : 0.4, outline: picking === key ? '1px solid #e8c349' : undefined }}
+                      <button key={pi} style={{ ...btn, fontSize: 11, padding: '3px 7px', opacity: ok ? 1 : 0.4, outline: active ? '1px solid #e8c349' : undefined }}
                         disabled={!ok}
-                        onClick={() => targeted
-                          ? setPicking(picking === key ? null : key)
+                        onClick={() => targeted ? setPicking(picking === key ? null : key)
+                          : door ? setDoorPicking(doorPicking === key ? null : key)
                           : submit({ type: 'play-doom-card', corp, cardId: cid, power: pi })}
-                        title={ok ? (targeted ? 'Choose a Legion figure' : '') : 'No valid target right now'}>▶ {p.name}{targeted ? '…' : ''}</button>
+                        title={ok ? (targeted ? 'Choose a Legion figure' : door ? 'Choose a gap on the board' : '') : 'No valid target right now'}>▶ {p.name}{targeted || door ? '…' : ''}</button>
                     );
                   })}
                 </div>
+                {doorPicking?.startsWith(`${cid}:`) && (
+                  <div style={{ marginTop: 4, fontSize: 11, color: '#e8c349' }}>
+                    🚪 Click a highlighted gap on the board to place the door (a doorway or corridor one square wide).{' '}
+                    <button style={{ ...btn, fontSize: 11, padding: '1px 6px', color: '#888' }} onClick={() => setDoorPicking(null)}>cancel</button>
+                  </div>
+                )}
                 {picking?.startsWith(`${cid}:`) && (() => {
                   const pi = Number(picking.split(':')[1]);
                   return (

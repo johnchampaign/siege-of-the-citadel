@@ -86,6 +86,7 @@ export interface Wall {
   y: number;
   dir: 'N' | 'E' | 'S' | 'W';
   citadel?: boolean; // part of the Citadel crosshair (rendered as the piece, not a tile wall)
+  door?: boolean;    // Remote Controlled Door: a wall until an attack scores 3+ hits on it
 }
 
 export interface MissionDef {
@@ -239,5 +240,6 @@ export type Action =
   | { type: 'equip'; corp: string; trooperUid: string; cardId: string } // setup: assign equipment
   | { type: 'finish-setup' }                                    // setup: lock in equipment
   | { type: 'resolve-event' }                                   // Legion acknowledges the round's event
-  | { type: 'play-doom-card'; corp: string; cardId: string; power: number; targetUid?: string; x?: number; y?: number } // play a Doomtrooper Card (one of its two powers)
+  | { type: 'play-doom-card'; corp: string; cardId: string; power: number; targetUid?: string; x?: number; y?: number; dir?: 'E' | 'S' } // play a Doomtrooper Card (one of its two powers); x/y/dir = the door's edge
+  | { type: 'attack-door'; uid: string; x: number; y: number; dir: 'E' | 'S'; weaponIdx: number } // attack a Remote Controlled Door (edge east/south of x,y)
   | { type: 'start' };                                          // setup -> play
