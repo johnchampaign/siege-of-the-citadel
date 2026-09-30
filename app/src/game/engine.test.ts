@@ -2,7 +2,7 @@
 import { RandomAI, Rng } from 'digital-boardgame-framework';
 import { adapter, createInitialState, doorSpots } from './adapter';
 import { effectiveType, extraActionPoolSize } from './data';
-import { wallBlocksStep, hasLineOfSight, canStep } from './rules';
+import { wallBlocksStep, wallBetween, withWall, withoutWall, hasLineOfSight, canStep } from './rules';
 import { MISSION_LIST } from './missions';
 import type { GameState, Action, Wall } from './types';
 
@@ -316,6 +316,34 @@ async function playOut(seed: number): Promise<GameState> {
     const next = adapter.applyAction(g, { type: 'end-turn' }, g.activeSeat!);
     check('clone: the new state logged more', next.log.length > before);
     check('clone: the previous state\'s log is untouched', g.log.length === before && JSON.stringify(g.log) === snapshot);
+  }
+
+  // --- the cached step table (and its seeded copies) matches the wall formula exactly ---
+  {
+    const ref = (walls: Wall[], x: number, y: number, tx: number, ty: number, strict: boolean) => {
+      const dx = tx - x, dy = ty - y;
+      if (dx !== 0 && dy === 0) return wallBetween(walls, x, y, dx > 0 ? 'E' : 'W');
+      if (dy !== 0 && dx === 0) return wallBetween(walls, x, y, dy > 0 ? 'S' : 'N');
+      const h = wallBetween(walls, x, y, dx > 0 ? 'E' : 'W'), v = wallBetween(walls, x, y, dy > 0 ? 'S' : 'N');
+      const h2 = wallBetween(walls, tx, ty, dx > 0 ? 'W' : 'E'), v2 = wallBetween(walls, tx, ty, dy > 0 ? 'N' : 'S');
+      return h || v || (strict ? h2 || v2 : h2 && v2);
+    };
+    let checks = 0, bad = 0;
+    for (const m of MISSION_LIST.slice(0, 4)) {
+      const g = createInitialState({ missionId: m.id, seed: 1 });
+      const sp = doorSpots(g)[0];
+      const sweep = (walls: Wall[]) => {
+        for (let y = -2; y < 26; y++) for (let x = -2; x < 34; x++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          for (const strict of [false, true]) { checks++; if (wallBlocksStep(walls, x, y, x + dx, y + dy, strict) !== ref(walls, x, y, x + dx, y + dy, strict)) bad++; }
+        }
+      };
+      sweep(g.walls);                                                        // fills the base table
+      const added = withWall(g.walls, { x: sp.x, y: sp.y, dir: sp.dir, door: true });
+      sweep(added);                                                          // seeded from the base
+      sweep(withoutWall(added, (w) => !!w.door));                            // seeded, door removed
+    }
+    check(`step table matches the wall formula (${checks} checks, ${bad} mismatches)`, bad === 0);
   }
 
   // --- walls block movement geometry ---
