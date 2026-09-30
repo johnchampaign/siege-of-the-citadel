@@ -630,18 +630,25 @@ function pickCard(c: Ctx, legal: Action[], mine: Figure[]): Action | null {
   // Powers aimed at a "freely chosen Legion figure" arrive as one action per
   // target: score each target, play the best if it clears `min`.
   const targetOf = (a: CardAction) => (a.targetUid ? s.figures.find((g) => g.uid === a.targetUid) : toughestLegion(s));
-  const bestTarget = (effect: string, score: (t: Figure) => number, min: number): CardAction | null => {
-    let best: CardAction | null = null, bestV = min;
+  const bestTarget = (effect: string, score: (t: Figure) => number, min: number): { a: CardAction; v: number } | null => {
+    let best: { a: CardAction; v: number } | null = null;
     for (const a of cardActions) {
       if (effectOf(a) !== effect) continue;
       const t = targetOf(a);
       if (!t) continue;
       const v = score(t);
-      if (v >= bestV) { best = a; bestV = v; }
+      if (v >= (best?.v ?? min)) best = { a, v };
     }
     return best;
   };
   const near = (t: Figure) => mine.some((f) => dist(f.x, f.y, t.x, t.y) <= 10);
+  // Remote Controlled Door: one legal action per gap — weighed once, at the start
+  // of the turn (before our figures move the picture), and cached.
+  let doorBest: { a: CardAction; v: number } | null | undefined;
+  const door = () => {
+    if (doorBest === undefined) doorBest = turnStart ? bestDoor(c, cardActions.filter((x) => effectOf(x) === 'door'), mine) : null;
+    return doorBest;
+  };
   for (const a of cardActions) {
     const p = DOOM_CARDS[a.cardId]?.powers[a.power];
     if (!p) continue;
@@ -650,14 +657,18 @@ function pickCard(c: Ctx, legal: Action[], mine: Figure[]): Action | null {
       case 'attack-legion':
         // Control Defense System: 3 black dice at whichever figure is worth most
         // to kill (the boss, the dangerous shooter) — not armor it can't beat.
-        pick = bestTarget('attack-legion', (t) =>
-          outcome(3, 'black', armorOf(s, t, typeOf(c, t)), 0, 'white', 1).pKill * legionValue(c, t), 1);
-        if (pick) return pick;
+        // It shares a card with Remote Controlled Door: play whichever power is
+        // worth more right now.
+        {
+          const cds = bestTarget('attack-legion', (t) =>
+            outcome(3, 'black', armorOf(s, t, typeOf(c, t)), 0, 'white', 1).pKill * legionValue(c, t), 1);
+          if (cds) { const d = door(); return d && d.v > cds.v ? d.a : cds.a; }
+        }
         break;
       case 'mind-control':
         // Commanding Voice: two Actions with a Legion figure — worth it for a kill
         // it can make on its own side, or to march a dangerous one away from us.
-        pick = bestTarget('mind-control', (t) => Math.max(commandKillValue(c, t), near(t) ? DANGER[t.typeId] ?? 0 : 0), 2);
+        pick = bestTarget('mind-control', (t) => Math.max(commandKillValue(c, t), near(t) ? DANGER[t.typeId] ?? 0 : 0), 2)?.a ?? null;
         if (pick) return pick;
         break;
       case 'heal':
@@ -675,16 +686,65 @@ function pickCard(c: Ctx, legal: Action[], mine: Figure[]): Action | null {
       case 'armor-down':
         // Weak Spot: on the most valuable armored figure we can attack right now.
         pick = bestTarget('armor-down', (t) =>
-          (typeOf(c, t).armor >= 1 && attacks.some((x) => x.targetUid === t.uid) ? legionValue(c, t) : 0), 1);
+          (typeOf(c, t).armor >= 1 && attacks.some((x) => x.targetUid === t.uid) ? legionValue(c, t) : 0), 1)?.a ?? null;
         if (pick) return pick;
         break;
       case 'reroll':
         if (attacks.some((x) => { const t = s.figures.find((g) => g.uid === x.targetUid); return !!t && isObjective(s, t); })) return a;
         break;
+      case 'door':
+        pick = door()?.a ?? null;
+        if (pick) return pick;
+        break;
       default: break;
     }
   }
   return null;
+}
+
+// ---------- Remote Controlled Door: where (and whether) to place one ----------
+
+const DOOR_MIN_GAIN = 2;       // net value a door must add to be worth the card
+const DOOR_DELAY_W = 0.15;     // per extra square the Legion must walk to reach us
+const DOOR_DELAY_CAP = 10;     // (per figure — a sealed-off figure isn't worth infinity)
+
+/** Our side's picture with a given walls array: danger to our troopers next
+ *  turn, how far they are from the objective, and how far each Legion figure
+ *  has to walk to reach one of them. */
+function doorPicture(c: Ctx, walls: Wall[], mine: Figure[]) {
+  const c2 = walls === c.s.walls ? c : buildCtx({ ...c.s, walls }, c.actor);
+  const risk = mine.length ? weights(c2, mine[0]).risk : 1;
+  const wObj = mine.length ? weights(c2, mine[0]).wObj : 0;
+  let danger = 0, route = 0;
+  for (const f of mine) {
+    danger += risk * exposure(c2, f, f.x, f.y, -1);
+    route += wObj * Math.min(30, goalDist(c2, f.x, f.y));
+  }
+  const toUs = distanceField(c2, c2.friends.map((g) => ({ x: g.x, y: g.y })), 0, Infinity, walls);
+  const walk = new Map<string, number>();
+  for (const e of c2.enemies) if (figureType(e.typeId).actions > 0) walk.set(e.uid, toUs.get(K(e.x, e.y)) ?? 99);
+  return { danger, route, walk };
+}
+
+/** The door placement worth most — danger removed now, plus the Legion held
+ *  back, minus our own route lengthened — if it clears DOOR_MIN_GAIN. Only
+ *  gaps near both our troopers and the Legion are considered. */
+function bestDoor(c: Ctx, options: Extract<Action, { type: 'play-doom-card' }>[], mine: Figure[]): { a: Extract<Action, { type: 'play-doom-card' }>; v: number } | null {
+  const enemies = c.enemies.filter((e) => figureType(e.typeId).actions > 0);
+  if (!mine.length || !enemies.length) return null;
+  const nearAny = (x: number, y: number, fs: Figure[], r: number) => fs.some((f) => dist(x, y, f.x, f.y) <= r);
+  const base = doorPicture(c, c.s.walls, mine);
+  let best: { a: Extract<Action, { type: 'play-doom-card' }>; v: number } | null = null;
+  for (const a of options) {
+    if (a.x === undefined || a.y === undefined || !a.dir) continue;
+    if (!nearAny(a.x, a.y, mine, 8) || !nearAny(a.x, a.y, enemies, 12)) continue;
+    const pic = doorPicture(c, [...c.s.walls, { x: a.x, y: a.y, dir: a.dir, door: true }], mine);
+    let held = 0;
+    for (const [uid, d0] of base.walk) held += Math.min(DOOR_DELAY_CAP, Math.max(0, (pic.walk.get(uid) ?? d0) - d0));
+    const v = (base.danger - pic.danger) + DOOR_DELAY_W * held - Math.max(0, pic.route - base.route);
+    if (v > (best?.v ?? DOOR_MIN_GAIN)) best = { a, v };
+  }
+  return best;
 }
 
 // ---------- Commanding Voice: directing a Legion figure ----------

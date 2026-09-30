@@ -155,6 +155,34 @@ function playTurn(g: GameState, seat: string): GameState {
     check(`AI Razide attacks the door blocking it (${a.type}${a.weaponIdx !== undefined ? ' w' + a.weaponIdx : ''})`, a.type === 'attack-door' && a.weaponIdx === 1);
   }
 
+  // --- Remote Controlled Door: seal the gap a monster would come through… ---
+  {
+    // A wall down x=5|6 (rows 0..15) with one gap at row 7.
+    const wallLine = (): Wall[] => Array.from({ length: 16 }, (_, y) => y).filter((y) => y !== 7).map((y) => ({ x: 5, y, dir: 'E' as const }));
+    let g = scenario('trial', [
+      { typeId: 'steiner', owner: 'Bauhaus', x: 7, y: 7 },
+      { typeId: 'ezoghoul', owner: 'legion', x: 2, y: 7 },   // can walk through the gap and strike this turn
+    ], wallLine());
+    g.win = { kind: 'survive' };
+    g.activeSeat = 'Bauhaus';
+    g.doomHands.Bauhaus = ['cds_rcd'];
+    const a = chooseAction(g, 'Bauhaus') as any;
+    check(`AI seals the gap between the Ezoghoul and its trooper (${a.type} ${a.x ?? ''},${a.y ?? ''} ${a.dir ?? ''})`,
+      a.type === 'play-doom-card' && a.power === 1 && a.x === 5 && a.y === 7 && a.dir === 'E');
+
+    // …but not the gap it needs to reach its own exit, when the threat is on its side.
+    g = scenario('trial', [
+      { typeId: 'steiner', owner: 'Bauhaus', x: 7, y: 7 },
+      { typeId: 'ezoghoul', owner: 'legion', x: 12, y: 7 },
+    ], wallLine());
+    g.win = { kind: 'escape', count: 1 };
+    g.exits = [{ x: 0, y: 7 }];
+    g.activeSeat = 'Bauhaus';
+    g.doomHands.Bauhaus = ['cds_rcd'];
+    const b = chooseAction(g, 'Bauhaus') as any;
+    check(`AI does not wall off its own route (${b.type}${b.dir ? ` door ${b.x},${b.y} ${b.dir}` : ''})`, !(b.type === 'play-doom-card' && b.power === 1));
+  }
+
   // --- pursues the objective: a trooper near the exit escapes (and wins Trapped!) ---
   {
     let g = createInitialState({ missionId: 'trapped', seed: 1 });
