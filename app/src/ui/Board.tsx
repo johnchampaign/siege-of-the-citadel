@@ -58,8 +58,11 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
     }
   }
 
+  // Commanding Voice: while a corporation directs a Legion figure, that figure
+  // is the only one it can act with.
+  const cmd = state.commandeer?.corp === state.activeSeat ? state.commandeer : undefined;
   const activeFigs = new Set(
-    state.figures.filter((f) => f.alive && f.owner === state.activeSeat).map((f) => f.uid),
+    cmd ? [cmd.uid] : state.figures.filter((f) => f.alive && f.owner === state.activeSeat).map((f) => f.uid),
   );
 
   return (
@@ -256,7 +259,7 @@ export const Board: React.FC<Props> = ({ state, legal, selected, weaponIdx, useA
             : atkWeapons.find((i) => attackKinds[i] === 'close') ?? atkWeapons[0])
           : -1;
         const attackColor = hasMelee ? '#f44' : '#39f'; // red = melee, blue = ranged
-        const isMine = f.owner === state.activeSeat;
+        const isMine = activeFigs.has(f.uid);
         const canActivate = activeFigs.has(f.uid);
         // Dim figures that can't act/be acted on this turn so the active
         // seat's figures clearly stand out (the rest aren't clickable).

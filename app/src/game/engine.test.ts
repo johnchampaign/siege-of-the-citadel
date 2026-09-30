@@ -196,8 +196,67 @@ async function playOut(seed: number): Promise<GameState> {
     const r3 = adapter.tryApplyAction!(g, { type: 'play-doom-card', corp: 'Bauhaus', cardId: 'cds_rcd', power: 0, targetUid: trooper.uid }, 'Bauhaus');
     check('a Doomtrooper cannot be the target', !r3.ok);
     const r4 = adapter.tryApplyAction!(g, { type: 'play-doom-card', corp: 'Bauhaus', cardId: 'cv_si', power: 0, targetUid: 'lg' }, 'Bauhaus');
-    const seized = r4.state.figures.find((f) => f.uid === 'lg')!, spared = r4.state.figures.find((f) => f.uid === 'ez')!;
-    check('Commanding Voice seizes the chosen figure', r4.ok && seized.actionsLeft === 0 && spared.actionsLeft === 3);
+    check('Commanding Voice commands the chosen figure', r4.ok && r4.state.commandeer?.uid === 'lg');
+  }
+
+  // --- Commanding Voice: take command of a Legion figure for two Actions ---
+  {
+    const setup = (target = 'lg') => {
+      let g = createInitialState({ missionId: 'trial', seed: 41 });
+      g = adapter.applyAction(g, { type: 'start' }, g.seats[0].id);
+      g.activeSeat = 'Bauhaus'; g.drawOrder = [];
+      g.doomHands.Bauhaus = ['cv_si'];
+      g.walls = [];
+      g.figures = g.figures.filter((f) => f.owner !== 'legion');
+      for (const f of g.figures) { f.actionsLeft = 2; f.actionsTaken = 0; }
+      g.figures.push(
+        { uid: 'rz', typeId: 'razide', owner: 'legion', x: 10, y: 10, woundsTaken: 0, actionsLeft: 2, actionsTaken: 0, alive: true },
+        { uid: 'ez', typeId: 'ezoghoul', owner: 'legion', x: 11, y: 10, woundsTaken: 0, actionsLeft: 3, actionsTaken: 0, alive: true },
+        { uid: 'lg', typeId: 'legionnaire', owner: 'legion', x: 10, y: 11, woundsTaken: 0, actionsLeft: 2, actionsTaken: 0, alive: true },
+        { uid: 'dr', typeId: 'door', owner: 'legion', x: 3, y: 12, woundsTaken: 0, actionsLeft: 0, actionsTaken: 0, alive: true, tag: 'door' },
+      );
+      return adapter.applyAction(g, { type: 'play-doom-card', corp: 'Bauhaus', cardId: 'cv_si', power: 0, targetUid: target }, 'Bauhaus');
+    };
+    {
+      let g = createInitialState({ missionId: 'trial', seed: 41 });
+      g = adapter.applyAction(g, { type: 'start' }, g.seats[0].id);
+      g.activeSeat = 'Bauhaus'; g.doomHands.Bauhaus = ['cv_si'];
+      g.figures.push({ uid: 'dr', typeId: 'door', owner: 'legion', x: 3, y: 12, woundsTaken: 0, actionsLeft: 0, actionsTaken: 0, alive: true, tag: 'door' });
+      check('CV: an objective (doorway) cannot be commandeered',
+        !adapter.legalActions(g, 'Bauhaus').some((a) => a.type === 'play-doom-card' && a.cardId === 'cv_si' && a.targetUid === 'dr'));
+    }
+    let g = setup();
+    const legal = adapter.legalActions(g, 'Bauhaus');
+    check('CV: the corp now commands the chosen figure', g.commandeer?.uid === 'lg' && g.commandeer.actionsLeft === 2);
+    check('CV: only the commandeered figure acts (plus release)', legal.length > 1 && legal.every((a) => 'uid' in a && a.uid === 'lg'));
+    check('CV: it can attack other Legion figures', legal.some((a) => a.type === 'attack' && a.targetUid === 'rz'));
+    const trooper = g.figures.find((f) => f.owner === 'Bauhaus')!;
+    trooper.x = 9; trooper.y = 12; // adjacent to the Legionnaire
+    check('CV: it cannot attack a Doomtrooper',
+      !adapter.tryApplyAction!(g, { type: 'attack', uid: 'lg', targetUid: trooper.uid, weaponIdx: 0 }, 'Bauhaus').ok);
+    check('CV: end-turn waits until command is over', !adapter.tryApplyAction!(g, { type: 'end-turn' }, 'Bauhaus').ok);
+    // Two claw attacks on the armor-3 Ezoghoul (2 white dice can never hurt it).
+    g = adapter.applyAction(g, { type: 'attack', uid: 'lg', targetUid: 'ez', weaponIdx: 0 }, 'Bauhaus');
+    check('CV: one Action spent', g.commandeer?.actionsLeft === 1);
+    g = adapter.applyAction(g, { type: 'attack', uid: 'lg', targetUid: 'ez', weaponIdx: 0 }, 'Bauhaus');
+    const lg = g.figures.find((f) => f.uid === 'lg')!;
+    check('CV: control reverts after two Actions', g.commandeer === undefined && g.activeSeat === 'Bauhaus');
+    check('CV: the Legion keeps the figure\'s own actions', lg.actionsLeft === 2 && !lg.passed);
+    check('CV: the corp\'s own figures act again', adapter.legalActions(g, 'Bauhaus').some((a) => a.type === 'move' && a.uid !== 'lg'));
+    // Early release, then a kill credited to the corporation.
+    g = setup();
+    g = adapter.applyAction(g, { type: 'pass-figure', uid: 'lg' }, 'Bauhaus');
+    check('CV: released early on request', g.commandeer === undefined);
+    let killedBy = '';
+    for (let seed = 0; seed < 40 && !killedBy; seed++) {
+      // Command the Razide; its heavy firearm (3 red) at the adjacent Legionnaire.
+      let h = setup('rz');
+      h.rngState = seed + 1;
+      const pp = h.promotion.Bauhaus;
+      h = adapter.applyAction(h, { type: 'attack', uid: 'rz', targetUid: 'lg', weaponIdx: 1 }, 'Bauhaus');
+      if (!h.figures.find((f) => f.uid === 'lg')!.alive) killedBy = h.promotion.Bauhaus > pp ? 'Bauhaus' : 'nobody';
+    }
+    check(`CV: a kill scores for the commanding corporation (${killedBy})`, killedBy === 'Bauhaus');
   }
 
   // --- walls block movement geometry ---

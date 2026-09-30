@@ -617,9 +617,9 @@ function pickCard(c: Ctx, legal: Action[], mine: Figure[]): Action | null {
         if (pick) return pick;
         break;
       case 'mind-control':
-        // Commanding Voice: seize the most dangerous nearby figure, if it has yet to act.
-        if (!legionStillToAct) break;
-        pick = bestTarget('mind-control', (t) => (t.actionsLeft > 0 && near(t) ? DANGER[t.typeId] ?? 0 : 0), 2);
+        // Commanding Voice: two Actions with a Legion figure — worth it for a kill
+        // it can make on its own side, or to march a dangerous one away from us.
+        pick = bestTarget('mind-control', (t) => Math.max(commandKillValue(c, t), near(t) ? DANGER[t.typeId] ?? 0 : 0), 2);
         if (pick) return pick;
         break;
       case 'heal':
@@ -649,6 +649,74 @@ function pickCard(c: Ctx, legal: Action[], mine: Figure[]): Action | null {
   return null;
 }
 
+// ---------- Commanding Voice: directing a Legion figure ----------
+
+/** Value (to the Doomtroopers) of `f`'s best kill on another Legion figure: one
+ *  it can reach and strike, or shoot from where it stands. */
+function commandKillValue(c: Ctx, f: Figure): number {
+  const ft = typeOf(c, f);
+  const R = moveRange(c.s, f);
+  let best = 0;
+  for (const g of c.enemies) {
+    if (g.uid === f.uid) continue;
+    const d = dist(f.x, f.y, g.x, g.y);
+    for (const w of ft.weapons) {
+      const reachable = w.kind === 'close' ? d <= R + 1 : d >= 1 && d <= w.range && los(c, f.x, f.y, g.x, g.y, -1);
+      if (!reachable) continue;
+      const armor = armorOf(c.s, g, typeOf(c, g));
+      best = Math.max(best, outcome(w.dice, w.color, armor, 0, 'white', 1).pKill * legionValue(c, g));
+    }
+  }
+  return best;
+}
+
+/** While in command: strike another Legion figure if a shot is worth it;
+ *  otherwise walk it where it can strike next, or else as far from our
+ *  troopers as it can get; release it when neither helps. */
+function commandeerChoice(c: Ctx, legal: Action[]): Action {
+  const s = c.s, cmd = s.commandeer!;
+  const f = s.figures.find((g) => g.uid === cmd.uid && g.alive);
+  const release = legal.find((a) => a.type === 'pass-figure') ?? legal[legal.length - 1];
+  if (!f) return release;
+  const ft = typeOf(c, f);
+  const killValue = (a: Extract<Action, { type: 'attack' }>) => {
+    const t = s.figures.find((g) => g.uid === a.targetUid)!;
+    const w = ft.weapons[a.weaponIdx];
+    return outcome(w.dice, w.color, armorOf(s, t, typeOf(c, t)), 0, 'white', 1).pKill * legionValue(c, t);
+  };
+  let bestAtk: Action | null = null, bestV = 0.3;
+  for (const a of legal) if (a.type === 'attack') { const v = killValue(a); if (v > bestV) { bestAtk = a; bestV = v; } }
+  if (bestAtk) return bestAtk;
+
+  const steps = getSteps(s, f.uid);
+  if (steps <= 0 && cmd.actionsLeft <= 0) return release;
+  const vac = K(f.x, f.y);
+  const after = steps > 0 ? cmd.actionsLeft : cmd.actionsLeft - 1;
+  const r = reach(c, f, f.x, f.y, steps > 0 ? steps : moveRange(s, f), vac);
+  const away = distanceField(c, c.friends.map((g) => ({ x: g.x, y: g.y })));
+  const score = (n: ReachNode) => {
+    let v = 0.2 * Math.min(12, away.get(n.k) ?? 12);
+    if (after >= 1) {
+      for (const g of c.enemies) {
+        if (g.uid === f.uid) continue;
+        for (const w of ft.weapons) {
+          const d = dist(n.x, n.y, g.x, g.y);
+          const ok = w.kind === 'close' ? d === 1 && !wallBlocksStep(s.walls, n.x, n.y, g.x, g.y) : d >= 1 && d <= w.range && los(c, n.x, n.y, g.x, g.y, vac);
+          if (ok) v = Math.max(v, 0.2 * Math.min(12, away.get(n.k) ?? 12) + outcome(w.dice, w.color, armorOf(s, g, typeOf(c, g)), 0, 'white', 1).pKill * legionValue(c, g));
+        }
+      }
+    }
+    return v;
+  };
+  const start = r.get(vac)!;
+  let best = start, bestS = score(start) + 0.05; // only move for a real gain
+  for (const n of r.values()) { if (n.d === 0) continue; const v = score(n); if (v > bestS) { best = n; bestS = v; } }
+  if (best === start) return release;
+  const step = firstStep(r, best);
+  const mv: Action = { type: 'move', uid: f.uid, x: step.x, y: step.y };
+  return legal.some((a) => sameAction(a, mv)) ? mv : release;
+}
+
 // ---------- the controller ----------
 
 const sameAction = (a: Action, b: Action) => JSON.stringify(a) === JSON.stringify(b);
@@ -669,6 +737,7 @@ function decide(state: GameState, actor: string): { act: Action; path?: Step[] }
   const c = buildCtx(state, actor);
   const s = state;
   const mine = s.figures.filter((f) => f.alive && f.owner === actor);
+  if (s.commandeer?.corp === actor) return { act: commandeerChoice(c, legal) };
 
   if (actor !== 'legion') {
     const card = pickCard(c, legal, mine);

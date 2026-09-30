@@ -80,6 +80,9 @@ export const App: React.FC = () => {
   const isLegionTurn = state.activeSeat === 'legion';
 
   const selFig = state.figures.find((f) => f.uid === selected && f.alive) || null;
+  // Commanding Voice: select the commandeered Legion figure as control passes.
+  const command = state.commandeer?.corp === state.activeSeat ? state.commandeer : undefined;
+  useEffect(() => { if (command) setSelected(command.uid); }, [command?.uid]);
   const selType = selFig ? figureType(selFig.typeId) : null;
   // effective weapons (equipment/rank folded in) for display + kind lookup
   const selEff = selFig ? effectiveType(selFig, state.rank[selFig.owner] ?? 1, (state as any)._frenzy) : null;
@@ -341,7 +344,12 @@ export const App: React.FC = () => {
         {selFig && selType && (
           <Panel title={`Selected: ${selType.name}`}>
             <div style={{ fontSize: 13 }}>
-              {selType.faction} · strength {selType.strength - selFig.woundsTaken}/{selType.strength} · armor {selType.armor} · <b>{selFig.actionsLeft} action(s)</b>
+              {command?.uid === selFig.uid && (
+                <div style={{ color: '#e8c349', marginBottom: 4 }}>
+                  🗣 Commanding Voice — you control this {selType.name}: <b>{command.actionsLeft}</b> action(s) left. It can move, or attack other Legion figures.
+                </div>
+              )}
+              {selType.faction} · strength {selType.strength - selFig.woundsTaken}/{selType.strength} · armor {selType.armor} · <b>{command?.uid === selFig.uid ? command.actionsLeft : selFig.actionsLeft} action(s)</b>
               {selFig.owner !== 'legion' && selFig.actionsLeft === 0 && (state.extraPool[selFig.owner] ?? 0) > 0 && (selFig.actionsTaken ?? 0) < 4 && !selFig.passed && (
                 <span style={{ color: '#e8c349' }}> +pool</span>
               )}
@@ -375,7 +383,7 @@ export const App: React.FC = () => {
               </div>
             </div>
             <button style={{ ...btn, marginTop: 8 }} onClick={() => { submit({ type: 'pass-figure', uid: selFig.uid }); setSelected(null); }}>
-              Done with this figure
+              {command?.uid === selFig.uid ? 'Release control to the Legion' : 'Done with this figure'}
             </button>
           </Panel>
         )}

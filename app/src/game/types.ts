@@ -55,7 +55,6 @@ export interface Figure {
   equipment?: string[];       // equipment card ids carried (troopers)
   moveDebuff?: number;        // Hurt Leg: moves this many squares fewer (mission-long)
   firearmDiceDown?: number;   // Uncalibrated Targeter: this many fewer firearm dice (mission-long)
-  stun?: number;              // Commanding Voice: loses this many of its next actions
 }
 
 /** A sector placed on the board. Local squares are 0..size-1. */
@@ -199,6 +198,9 @@ export interface GameState {
   eventDeck: string[];        // remaining Dark Legion event card ids
   pendingEvent: string | null; // event drawn this round, awaiting Legion resolution
   roundFx: RoundFx;           // transient card effects for the current round
+  // Commanding Voice in progress: `corp` directs Legion figure `uid` for its
+  // `actionsLeft` (of two) actions, right now, before anything else it does.
+  commandeer?: { corp: string; uid: string; actionsLeft: number };
   missionFx: MissionFx;       // persistent card effects for the whole mission
   setupDone: boolean;         // equipment selection finished
 

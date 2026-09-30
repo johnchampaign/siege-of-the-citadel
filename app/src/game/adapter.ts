@@ -360,6 +360,7 @@ function revealNextSeat(s: GameState) {
 }
 
 function endActiveTurn(s: GameState) {
+  delete s.commandeer; // control of a commandeered figure never outlives the turn
   if (s.drawOrder.length > 0) {
     revealNextSeat(s);
   } else {
@@ -567,6 +568,8 @@ export const adapter: GameAdapter<GameState, Action, string> = {
       return actions;
     }
     if (s.phase === 'over' || actor !== s.activeSeat) return actions;
+    // Commanding Voice in progress: the commandeered figure's actions come first.
+    if (s.commandeer?.corp === actor) return commandeerActions(s, s.commandeer);
 
     // Doomtrooper Cards may be played on your turn — either of a card's two
     // powers, if that power has a valid (auto-resolved) target.
@@ -578,7 +581,7 @@ export const adapter: GameAdapter<GameState, Action, string> = {
         // "Freely chosen Legion figure" (Control Defense System, Commanding Voice,
         // Weak Spot): one action per possible target, so the player picks it.
         if (p.target === 'legion') {
-          for (const t of s.figures) if (t.alive && t.owner === 'legion')
+          for (const t of s.figures) if (t.alive && t.owner === 'legion' && (p.effect !== 'mind-control' || commandable(t)))
             actions.push({ type: 'play-doom-card', corp: actor, cardId, power, targetUid: t.uid });
         } else actions.push({ type: 'play-doom-card', corp: actor, cardId, power });
       });
@@ -685,6 +688,7 @@ export const adapter: GameAdapter<GameState, Action, string> = {
 
     if (s.phase !== 'play') return { state, ok: false, reason: 'not in play' };
     if (actor !== s.activeSeat) return { state, ok: false, reason: 'not your turn' };
+    if (s.commandeer?.corp === actor) return applyCommandeer(state, s, action, actor);
 
     if (action.type === 'end-turn') {
       endActiveTurn(s);
@@ -951,7 +955,7 @@ function enemyCorpOf(s: GameState, corp: string): string | null {
 function powerPlayable(s: GameState, corp: string, p: DoomPower): boolean {
   switch (p.target) {
     case 'self-trooper': return s.figures.some((f) => f.alive && f.owner === corp && f.woundsTaken > 0);
-    case 'legion': return s.figures.some((f) => f.alive && f.owner === 'legion');
+    case 'legion': return s.figures.some((f) => f.alive && f.owner === 'legion' && (p.effect !== 'mind-control' || commandable(f)));
     case 'enemy-corp': return enemyCorpOf(s, corp) != null;
     case 'enemy-trooper': return s.figures.some((f) => f.alive && f.owner !== 'legion' && f.owner !== corp);
     case 'teleport': return s.figures.some((f) => f.alive && f.owner === corp);
@@ -1014,9 +1018,11 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
       break;
     }
     case 'mind-control': {
-      const t = chosenLegion(s, action.targetUid); if (!t) return false;
-      t.actionsLeft = 0; t.stun = 2; // seized — loses its actions
-      logEvent(s, 'card.effect', `${figureType(t.typeId).name} is seized and loses its next actions.`, { depth: 1, effect: 'mind-control', targetUid: t.uid }, corp);
+      // Commanding Voice: take command of the figure for two Actions, now.
+      const t = chosenLegion(s, action.targetUid, true); if (!t) return false;
+      s.commandeer = { corp, uid: t.uid, actionsLeft: 2 };
+      setSteps(s, t.uid, 0);
+      logEvent(s, 'card.effect', `${corp} takes command of the ${figureType(t.typeId).name} for two Actions.`, { depth: 1, effect: 'mind-control', targetUid: t.uid }, corp);
       break;
     }
     case 'teleport': {
@@ -1125,9 +1131,110 @@ function playDoomCard(s: GameState, action: Extract<Action, { type: 'play-doom-c
 /** The Legion figure a "freely chosen Legion figure" power targets: the one the
  *  player picked (must be a living Legion figure), or — for an action with no
  *  target, e.g. from an older cached client — the toughest one, as before. */
-function chosenLegion(s: GameState, targetUid: string | undefined): Figure | undefined {
-  if (targetUid === undefined) return toughestLegion(s);
-  return s.figures.find((f) => f.uid === targetUid && f.alive && f.owner === 'legion');
+function chosenLegion(s: GameState, targetUid: string | undefined, mustAct = false): Figure | undefined {
+  const ok = (f: Figure) => f.alive && f.owner === 'legion' && (!mustAct || commandable(f));
+  if (targetUid === undefined) {
+    return s.figures.filter(ok).sort((a, b) => figureType(b.typeId).armor - figureType(a.typeId).armor)[0];
+  }
+  return s.figures.find((f) => f.uid === targetUid && ok(f));
+}
+
+// ---------- Commanding Voice: a corporation directs a Legion figure ----------
+
+/** Can Commanding Voice take this figure? Not the objectives (doorways, the
+ *  battle computer) — they have no Actions to perform. */
+function commandable(f: Figure): boolean {
+  return figureType(f.typeId).actions > 0;
+}
+
+/** Whether a commandeered figure's weapon can hit `target` from where it stands.
+ *  It fights as a Legion figure: none of the Doomtroopers' round restrictions. */
+function commandeerCanHit(s: GameState, f: Figure, target: Figure, w: Weapon): boolean {
+  const d = dist(f.x, f.y, target.x, target.y);
+  if (w.kind === 'close') return d === 1 && !wallBlocksStep(s.walls, f.x, f.y, target.x, target.y);
+  return d >= 1 && d <= w.range && hasLineOfSight(s, f.x, f.y, target.x, target.y);
+}
+
+/** Legal actions while a figure is commandeered: its moves, its attacks on OTHER
+ *  Legion figures, and releasing it early (pass-figure on it). Nothing else until
+ *  control reverts — the card's two Actions happen immediately. */
+function commandeerActions(s: GameState, cmd: NonNullable<GameState['commandeer']>): Action[] {
+  const f = s.figures.find((x) => x.uid === cmd.uid && x.alive);
+  const actions: Action[] = [];
+  if (!f) return [{ type: 'end-turn' }];
+  if (getSteps(s, f.uid) > 0 || cmd.actionsLeft > 0) {
+    for (let dx = -1; dx <= 1; dx++)
+      for (let dy = -1; dy <= 1; dy++)
+        if ((dx || dy) && canStep(s, f.x, f.y, f.x + dx, f.y + dy)) actions.push({ type: 'move', uid: f.uid, x: f.x + dx, y: f.y + dy });
+  }
+  if (cmd.actionsLeft > 0) {
+    const ft = effectiveType(f, 1, boostFor(s, f));
+    for (const t of s.figures) {
+      if (!t.alive || t.owner !== 'legion' || t.uid === f.uid) continue;
+      ft.weapons.forEach((w, idx) => {
+        if (commandeerCanHit(s, f, t, w)) actions.push({ type: 'attack', uid: f.uid, targetUid: t.uid, weaponIdx: idx });
+      });
+    }
+  }
+  actions.push({ type: 'pass-figure', uid: f.uid });
+  return actions;
+}
+
+/** Control reverts to the Legion player; the corporation's turn carries on. */
+function releaseCommandeer(s: GameState) {
+  const cmd = s.commandeer;
+  if (!cmd) return;
+  delete s.commandeer;
+  setSteps(s, cmd.uid, 0);
+  const f = s.figures.find((x) => x.uid === cmd.uid);
+  if (f?.alive) logEvent(s, 'card.effect', `Control of the ${figureType(f.typeId).name} reverts to the Dark Legion.`, { depth: 1, effect: 'mind-control-end', targetUid: f.uid }, cmd.corp);
+  autoAdvance(s);
+}
+
+function applyCommandeer(state: GameState, s: GameState, action: Action, actor: string): { state: GameState; ok: boolean; reason?: string } {
+  const cmd = s.commandeer!;
+  const f = s.figures.find((x) => x.uid === cmd.uid && x.alive);
+  const busy = { state, ok: false, reason: 'finish commanding the Legion figure first' };
+  if (!f) { releaseCommandeer(s); return { state: s, ok: true }; }
+  if (action.type === 'pass-figure') {
+    if (action.uid !== f.uid) return busy;
+    releaseCommandeer(s);
+    return { state: s, ok: true };
+  }
+  if (action.type === 'move') {
+    if (action.uid !== f.uid) return busy;
+    if (!canStep(s, f.x, f.y, action.x, action.y)) return { state, ok: false, reason: 'blocked' };
+    let steps = getSteps(s, f.uid);
+    if (steps <= 0) {
+      if (cmd.actionsLeft <= 0) return { state, ok: false, reason: 'no actions left' };
+      cmd.actionsLeft -= 1;
+      steps = moveRange(s, f);
+    }
+    f.x = action.x; f.y = action.y;
+    setSteps(s, f.uid, steps - 1);
+    // A Legion figure: it neither flips Force Cards nor escapes.
+    checkWin(s);
+    if (s.phase === 'play' && cmd.actionsLeft === 0 && getSteps(s, f.uid) === 0) releaseCommandeer(s);
+    return { state: s, ok: true };
+  }
+  if (action.type === 'attack') {
+    if (action.uid !== f.uid) return busy;
+    if (cmd.actionsLeft <= 0) return { state, ok: false, reason: 'no actions left' };
+    const target = s.figures.find((x) => x.uid === action.targetUid && x.alive);
+    if (!target || target.owner !== 'legion' || target.uid === f.uid) return { state, ok: false, reason: 'a commandeered figure attacks other Legion figures' };
+    const ft = effectiveType(f, 1, boostFor(s, f));
+    const w = ft.weapons[action.weaponIdx];
+    if (!w) return { state, ok: false, reason: 'bad weapon' };
+    if (!commandeerCanHit(s, f, target, w)) return { state, ok: false, reason: w.kind === 'close' ? 'not adjacent' : 'out of range or no line of sight' };
+    cmd.actionsLeft -= 1;
+    setSteps(s, f.uid, 0);
+    // Credit the commanding corporation (Promotion Points for a kill).
+    resolveCombat(s, { ...f, owner: actor }, target, ft, w, action.weaponIdx);
+    checkWin(s);
+    if (s.phase === 'play' && (!f.alive || cmd.actionsLeft === 0)) releaseCommandeer(s);
+    return { state: s, ok: true };
+  }
+  return busy;
 }
 
 /** Toughest (highest-armor) living Legion figure — the default sabotage target. */
@@ -1143,7 +1250,7 @@ function moverEngageDist(s: GameState, f: Figure): number {
 
 /** If the active seat has no figure with actions remaining, auto-advance the turn. */
 function autoAdvance(s: GameState) {
-  if (s.phase !== 'play' || !s.activeSeat) return;
+  if (s.phase !== 'play' || !s.activeSeat || s.commandeer) return;
   const mine = s.figures.filter((f) => f.alive && f.owner === s.activeSeat);
   const anyLeft = mine.some((f) => canTakeAction(s, f) || getSteps(s, f.uid) > 0);
   if (!anyLeft) {

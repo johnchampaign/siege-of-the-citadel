@@ -126,6 +126,22 @@ function playTurn(g: GameState, seat: string): GameState {
       a.type === 'play-doom-card' && a.cardId === 'cds_rcd' && a.targetUid === 'f2');
   }
 
+  // --- Commanding Voice: the AI turns a Legion figure on its own side ---
+  {
+    let g = scenario('trial', [
+      { typeId: 'steiner', owner: 'Bauhaus', x: 5, y: 5 },
+      { typeId: 'razide', owner: 'legion', x: 8, y: 8 },        // dangerous, near our trooper
+      { typeId: 'centurion', owner: 'legion', x: 9, y: 9 },     // next to it: a kill worth taking
+    ]);
+    g.doomHands.Bauhaus = ['cv_si'];
+    g = playTurn(g, 'Bauhaus');
+    const cmdLog = g.log.filter((e) => e.kind === 'card.effect').map((e) => e.msg).join(' | ');
+    const turned = g.log.some((e) => e.kind === 'combat.roll' && (e.payload as any)?.attackerUid === 'f1');
+    check(`AI commands a Legion figure (${cmdLog})`, /takes command/.test(cmdLog));
+    check('…and turns it on another Legion figure', turned);
+    check('…and control reverts by the end of the turn', g.commandeer === undefined);
+  }
+
   // --- pursues the objective: a trooper near the exit escapes (and wins Trapped!) ---
   {
     let g = createInitialState({ missionId: 'trapped', seed: 1 });

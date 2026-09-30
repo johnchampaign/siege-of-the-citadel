@@ -92,7 +92,7 @@ export type DoomEffect =
   | 'phase'           // your Doomtroopers move through walls this round
   | 'teleport'        // teleport one of your Doomtroopers to another sector
   | 'move-force-card' // move a face-down Force Card to an adjacent sector
-  | 'mind-control'    // a chosen Legion figure loses its next 2 actions (stunned)
+  | 'mind-control'    // Commanding Voice: take command of a chosen Legion figure for 2 actions
   | 'pp-steal'        // take 5 Promotion Points from another corporation
   | 'card-steal'      // take a random Doomtrooper Card from another corporation
   | 'card-discard'    // discard a random Doomtrooper Card from another corporation
@@ -129,7 +129,7 @@ export const DOOM_CARDS: Record<string, DoomCardDef> = {
     blurb: 'Command Interference: move a face-down Force Card to an adjacent sector. / Hurt Leg: a chosen enemy Doomtrooper moves one square less per Round for the rest of the mission.' },
   cv_si: { id: 'cv_si', name: 'Commanding Voice / Steal Initiative',
     powers: [{ name: 'Commanding Voice', effect: 'mind-control', target: 'legion' }, { name: 'Steal Initiative', effect: 'card-steal', target: 'enemy-corp' }],
-    blurb: 'Commanding Voice: seize a Legion figure — it loses its next two Actions. / Steal Initiative: take a random Doomtrooper Card from another corporation.' },
+    blurb: 'Commanding Voice: take command of a chosen Legion figure and perform two Actions with it, then control reverts to the Legion. / Steal Initiative: take a random Doomtrooper Card from another corporation.' },
   cf_cr: { id: 'cf_cr', name: 'Combat Frenzy / Combat Report',
     powers: [{ name: 'Combat Frenzy', effect: 'extra-actions' }, { name: 'Combat Report', effect: 'pp-steal', target: 'enemy-corp' }],
     blurb: 'Combat Frenzy: spend two free extra Actions on your pair this Combat Round. / Combat Report: take 5 Promotion Points from another corporation.' },
