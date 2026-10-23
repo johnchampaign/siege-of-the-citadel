@@ -1,11 +1,23 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useGame, useIdentity, SignInBar } from 'digital-boardgame-framework/client';
+import { useGame, useIdentity, SignInBar, consumeSeatsFromLocation } from 'digital-boardgame-framework/client';
 import { Board } from './Board';
 import { httpClient, claimSeat, type OnlineParams } from './api';
 import { ReportPanel } from './ReportPanel';
 import { LogLines } from './LogLines';
 import { figureType, effectiveType } from '../game/data';
 import type { GameState, Action } from '../game/types';
+import { adapter } from '../game/adapter';
+
+// Seats this browser holds for a game. A hub-lobby player who runs several
+// seats (e.g. two of the corporations) gets one link with #seats=seat:token,…;
+// they're kept here so the page can switch as the turn passes between them.
+const walletKey = (gameId: string) => `siege-seats:${gameId}`;
+function loadWallet(gameId: string): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(walletKey(gameId)) ?? '{}'); } catch { return {}; }
+}
+function saveWallet(gameId: string, w: Record<string, string>): void {
+  try { localStorage.setItem(walletKey(gameId), JSON.stringify(w)); } catch { /* storage blocked */ }
+}
 
 // Online (server-authoritative) game view. Driven by the framework's useGame
 // hook against the deployed API Worker. Polls for the opponent's moves.
@@ -15,14 +27,29 @@ export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
   const { identity } = useIdentity();
   const idTokRef = useRef<string | undefined>(undefined);
   idTokRef.current = identity?.token;
+  const [wallet] = useState<Record<string, string>>(() => {
+    const w = { ...loadWallet(params.gameId), ...consumeSeatsFromLocation() };
+    saveWallet(params.gameId, w);
+    return w;
+  });
+  const [token, setToken] = useState(params.token);
   const client = useMemo(
-    () => httpClient(params.gameId, params.token, () => idTokRef.current),
-    [params.gameId, params.token],
+    () => httpClient(params.gameId, token, () => idTokRef.current),
+    [params.gameId, token],
   );
   const game = useGame<GameState, Action>(client, { pollMs: 2500, pauseWhenHidden: true });
   useEffect(() => {
-    if (identity?.token) void claimSeat(params.gameId, params.token, identity.token);
-  }, [identity?.token, params.gameId, params.token]);
+    if (identity?.token) void claimSeat(params.gameId, token, identity.token);
+  }, [identity?.token, params.gameId, token]);
+  // Holding several seats: follow whoever must act now, so nobody has to
+  // switch corporations by hand.
+  useEffect(() => {
+    const v = game.view;
+    if (!v) return;
+    const actor = adapter.currentActor(v);
+    const t = actor ? wallet[actor] : undefined;
+    if (t && t !== token) setToken(t);
+  }, [game.view, token, wallet]);
   const [selected, setSelected] = useState<string | null>(null);
   const [weaponIdx, setWeaponIdx] = useState(0);
 
@@ -88,6 +115,11 @@ export const OnlineGame: React.FC<{ params: OnlineParams }> = ({ params }) => {
       <div style={{ flex: '1 1 320px', maxWidth: 380, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <Panel title="Your Seat">
           <div style={{ fontSize: 15 }}>You are <b style={{ color: you === 'legion' ? '#f55' : '#5af' }}>{seatLabel(you)}</b></div>
+          {Object.keys(wallet).length > 1 && (
+            <select value={token} onChange={(e) => setToken(e.target.value)} style={{ marginTop: 6 }} aria-label="Seat to play">
+              {Object.entries(wallet).map(([seat, t]) => <option key={seat} value={t}>play as {seatLabel(seat)}</option>)}
+            </select>
+          )}
           <div style={{ fontSize: 13, marginTop: 6, color: yourTurn ? '#6f6' : '#aaa' }}>
             {state.phase === 'over' ? '🏁 Game over' : yourTurn ? '● Your turn' : `Waiting for ${seatLabel(state.activeSeat ?? '')}…`}
           </div>
