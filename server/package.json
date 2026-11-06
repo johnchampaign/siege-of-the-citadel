@@ -8,7 +8,7 @@
     "dev": "wrangler dev"
   },
   "dependencies": {
-    "digital-boardgame-framework": "^0.55.0"
+    "digital-boardgame-framework": "^0.58.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240909.0",
